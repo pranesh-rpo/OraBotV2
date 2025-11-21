@@ -1,7 +1,7 @@
 import asyncio
 import aiosqlite
 import random
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from typing import Optional
 from telethon.errors import (
     FloodWaitError, ChatWriteForbiddenError, UserBannedInChannelError,
@@ -17,6 +17,7 @@ class BroadcastWorker:
     def __init__(self):
         self.db = DatabaseOperations()
         self.running_tasks = {}
+        self.ist = timezone(timedelta(hours=5, minutes=30))
     
     async def start_broadcast(self, account_id: int):
         """Start broadcasting for an account"""
@@ -88,8 +89,8 @@ class BroadcastWorker:
             return False, "Broadcast not running"
         
         # Cancel task
-        self.running_tasks[account_id].cancel()
-        del self.running_tasks[account_id]
+        task = self.running_tasks.pop(account_id)
+        task.cancel()
         
         # Update status
         await self.db.update_account_broadcast_status(account_id, False)
@@ -174,14 +175,18 @@ class BroadcastWorker:
             # Normal schedule within same day
             return start_time <= current <= end_time
     
-    async def _broadcast_loop(self, account_id: int, account: dict, 
-                             client, message: str, groups: list):
+    async def _broadcast_loop(self, account_id: int, account: dict,
+                             client, initial_message: str, groups: list):
         """Main broadcast loop - sends to all groups, then waits with smart timing"""
+        message = initial_message
+        schedule = None
+        manual_interval = None
         try:
-            # Get schedule and manual interval
+            # Get schedule, manual interval, and latest message
             schedule = await self.db.get_schedule(account_id)
             manual_interval = await self.db.get_manual_interval(account_id)
-            
+            message = await self.db.get_account_message(account_id) or message
+
             # Log broadcast start
             mode_text = ""
             if manual_interval:
@@ -199,8 +204,23 @@ class BroadcastWorker:
             )
             
             while True:
+                # Refresh schedule, manual interval, and message each cycle
+                schedule = await self.db.get_schedule(account_id)
+                manual_interval = await self.db.get_manual_interval(account_id)
+                latest_message = await self.db.get_account_message(account_id)
+                if latest_message:
+                    message = latest_message
+                elif not message:
+                    await self.db.add_log(
+                        account_id,
+                        "error",
+                        "No message configured. Stopping broadcast.",
+                        "error"
+                    )
+                    break
+
                 # Check if within schedule time (only if schedule is set)
-                current_time = datetime.now()
+                current_time = datetime.now(tz=self.ist)
                 if schedule and not self._is_within_schedule(schedule, current_time):
                     # Outside schedule, wait and check again
                     start_time = schedule['start_time']
@@ -208,7 +228,7 @@ class BroadcastWorker:
                     await self.db.add_log(
                         account_id,
                         "broadcast",
-                        f"⏸️ Outside schedule ({start_time} - {end_time}), waiting...",
+                        f"⏸️ Outside schedule ({start_time} - {end_time} IST), waiting...",
                         "info"
                     )
                     # Wait 1 minute and check again
@@ -338,7 +358,12 @@ class BroadcastWorker:
                             )
                     
                     except FloodWaitError as e:
-                        wait_time = int(str(e).split('A wait of ')[1].split(' seconds')[0])
+                        wait_time = getattr(e, "seconds", None)
+                        if wait_time is None:
+                            try:
+                                wait_time = int(str(e).split('A wait of ')[1].split(' seconds')[0])
+                            except Exception:
+                                wait_time = Config.MIN_INTERVAL * 60
                         await self.db.add_log(
                             account_id,
                             "error",
@@ -346,6 +371,7 @@ class BroadcastWorker:
                             "warning"
                         )
                         failed_sends += 1
+                        await asyncio.sleep(wait_time)
                         # Skip this group and continue to next
                         continue
                 
@@ -449,7 +475,7 @@ class BroadcastWorker:
                         waited += sleep_time
                         
                         # Check if we're still within schedule
-                        current_time = datetime.now()
+                        current_time = datetime.now(tz=self.ist)
                         if not self._is_within_schedule(schedule, current_time):
                             await self.db.add_log(
                                 account_id,
@@ -458,7 +484,7 @@ class BroadcastWorker:
                                 "info"
                             )
                             # Wait until schedule starts again
-                            while not self._is_within_schedule(schedule, datetime.now()):
+                            while not self._is_within_schedule(schedule, datetime.now(tz=self.ist)):
                                 await asyncio.sleep(60)
                             await self.db.add_log(
                                 account_id,
@@ -485,7 +511,9 @@ class BroadcastWorker:
                 f"Broadcast loop error: {str(e)}",
                 "error"
             )
+        finally:
             await self.db.update_account_broadcast_status(account_id, False)
+            self.running_tasks.pop(account_id, None)
 
 # Global instance
 broadcast_worker = BroadcastWorker()
