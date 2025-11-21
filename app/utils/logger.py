@@ -1,5 +1,5 @@
 import aiohttp
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from config import Config
 from typing import Optional, List
 
@@ -7,6 +7,7 @@ class ExternalLogger:
     def __init__(self):
         self.token = Config.LOGGER_BOT_TOKEN
         self.base_url = f"https://api.telegram.org/bot{self.token}"
+        self.ist = timezone(timedelta(hours=5, minutes=30))
     
     def _build_log_message(
         self,
@@ -16,7 +17,7 @@ class ExternalLogger:
         log_type: str = "info"
     ) -> str:
         """Build formatted log message text"""
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(tz=self.ist).strftime("%Y-%m-%d %H:%M:%S IST")
         
         emoji = {
             "info": "ℹ️",

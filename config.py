@@ -8,6 +8,7 @@ class Config:
     # Bot Configuration
     BOT_TOKEN = os.getenv("BOT_TOKEN")
     BOT_USERNAME = os.getenv("BOT_USERNAME", "OraAdbot")
+    APP_VERSION = os.getenv("APP_VERSION", "v0.1.1")
     
     # Telegram API
     API_ID = int(os.getenv("API_ID"))

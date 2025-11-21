@@ -2,7 +2,7 @@ from config import Config
 
 def welcome_message(user_name: str) -> str:
     return f"""
-👋 <b>Welcome to Ora Ads, {user_name}!</b>
+👋 <b>Welcome to Ora Ads {Config.APP_VERSION}, {user_name}!</b>
 
 🚀 The most advanced Telegram Auto-Broadcast System
 
@@ -172,6 +172,7 @@ def logs_message(logs: list) -> str:
         
         log_text += f"{emoji} <b>{log['log_type']}</b>\n"
         log_text += f"   {log['message']}\n"
-        log_text += f"   <i>{log['timestamp'][:19]}</i>\n\n"
+        timestamp_text = log.get('timestamp', '') or ''
+        log_text += f"   <i>{timestamp_text} IST</i>\n\n"
     
     return log_text

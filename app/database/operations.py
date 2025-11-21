@@ -1,11 +1,15 @@
 import aiosqlite
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 from config import Config
 
 class DatabaseOperations:
     def __init__(self, db_path: str = None):
         self.db_path = db_path or Config.DATABASE_PATH
+        self.ist = timezone(timedelta(hours=5, minutes=30))
+
+    def _now_ist(self) -> datetime:
+        return datetime.now(tz=self.ist)
     
     # USER OPERATIONS
     async def add_user(self, user_id: int, username: str = None, first_name: str = None):
@@ -176,10 +180,11 @@ class DatabaseOperations:
     
     # LOG OPERATIONS
     async def add_log(self, account_id: int, log_type: str, message: str, status: str = "info"):
+        timestamp = self._now_ist().strftime("%Y-%m-%d %H:%M:%S")
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
-                "INSERT INTO logs (account_id, log_type, message, status) VALUES (?, ?, ?, ?)",
-                (account_id, log_type, message, status)
+                "INSERT INTO logs (account_id, log_type, message, status, timestamp) VALUES (?, ?, ?, ?, ?)",
+                (account_id, log_type, message, status, timestamp)
             )
             await db.commit()
     
@@ -215,9 +220,10 @@ class DatabaseOperations:
                 return [dict(row) for row in rows]
     
     async def update_group_last_message(self, account_id: int, group_id: int):
+        timestamp = self._now_ist().strftime("%Y-%m-%d %H:%M:%S")
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
-                "UPDATE groups SET last_message_sent = CURRENT_TIMESTAMP WHERE account_id = ? AND group_id = ?",
-                (account_id, group_id)
+                "UPDATE groups SET last_message_sent = ? WHERE account_id = ? AND group_id = ?",
+                (timestamp, account_id, group_id)
             )
             await db.commit()
