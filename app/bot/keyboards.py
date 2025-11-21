@@ -13,7 +13,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🔗 Link New Account", callback_data="link_account"),
         InlineKeyboardButton(text="📱 Manage Accounts", callback_data="manage_accounts"),
         InlineKeyboardButton(text="ℹ️ About Us", callback_data="about"),
-        InlineKeyboardButton(text="💬 Support", url="https://t.me/OraAdbotSupport"),
+        InlineKeyboardButton(text="💬 Support", url="https://t.me/HelpmeOrabot"),
         InlineKeyboardButton(text="🔒 Privacy Policy", callback_data="privacy"),
     ]
     rows = _chunk_buttons(buttons, per_row=2)
