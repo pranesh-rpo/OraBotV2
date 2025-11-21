@@ -1,15 +1,23 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from typing import List, Dict
 
+
+def _chunk_buttons(buttons: List[InlineKeyboardButton], per_row: int = 2) -> List[List[InlineKeyboardButton]]:
+    """Arrange buttons in rows with a fixed count per row."""
+    return [buttons[i:i + per_row] for i in range(0, len(buttons), per_row)]
+
+
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     """Main dashboard keyboard"""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Link New Account", callback_data="link_account")],
-        [InlineKeyboardButton(text="📱 Manage Accounts", callback_data="manage_accounts")],
-        [InlineKeyboardButton(text="ℹ️ About Us", callback_data="about")],
-        [InlineKeyboardButton(text="💬 Support", url="https://t.me/OraAdbotSupport")],
-        [InlineKeyboardButton(text="🔒 Privacy Policy", callback_data="privacy")]
-    ])
+    buttons = [
+        InlineKeyboardButton(text="🔗 Link New Account", callback_data="link_account"),
+        InlineKeyboardButton(text="📱 Manage Accounts", callback_data="manage_accounts"),
+        InlineKeyboardButton(text="ℹ️ About Us", callback_data="about"),
+        InlineKeyboardButton(text="💬 Support", url="https://t.me/OraAdbotSupport"),
+        InlineKeyboardButton(text="🔒 Privacy Policy", callback_data="privacy"),
+    ]
+    rows = _chunk_buttons(buttons, per_row=2)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def accounts_list_keyboard(accounts: List[Dict]) -> InlineKeyboardMarkup:
     """Keyboard showing list of accounts"""
@@ -32,16 +40,18 @@ def account_dashboard_keyboard(account_id: int, is_broadcasting: bool) -> Inline
         callback_data=f"toggle_broadcast_{account_id}"
     )
     
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [start_stop_btn],
-        [InlineKeyboardButton(text="💬 Set Message", callback_data=f"set_message_{account_id}")],
-        [InlineKeyboardButton(text="⏱️ Set Interval", callback_data=f"set_interval_{account_id}")],
-        [InlineKeyboardButton(text="🕐 Set Schedule", callback_data=f"set_schedule_{account_id}")],
-        [InlineKeyboardButton(text="➕ Join Groups", callback_data=f"join_groups_{account_id}")],
-        [InlineKeyboardButton(text="📊 View Logs", callback_data=f"view_logs_{account_id}")],
-        [InlineKeyboardButton(text="🗑️ Delete Account", callback_data=f"delete_confirm_{account_id}")],
-        [InlineKeyboardButton(text="⬅️ Back", callback_data="manage_accounts")]
-    ])
+    action_buttons = [
+        start_stop_btn,
+        InlineKeyboardButton(text="💬 Set Message", callback_data=f"set_message_{account_id}"),
+        InlineKeyboardButton(text="⏱️ Set Interval", callback_data=f"set_interval_{account_id}"),
+        InlineKeyboardButton(text="🕐 Set Schedule", callback_data=f"set_schedule_{account_id}"),
+        InlineKeyboardButton(text="➕ Join Groups", callback_data=f"join_groups_{account_id}"),
+        InlineKeyboardButton(text="📊 View Logs", callback_data=f"view_logs_{account_id}"),
+        InlineKeyboardButton(text="🗑️ Delete Account", callback_data=f"delete_confirm_{account_id}")
+    ]
+    rows = _chunk_buttons(action_buttons, per_row=2)
+    rows.append([InlineKeyboardButton(text="⬅️ Back", callback_data="manage_accounts")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def delete_confirmation_keyboard(account_id: int) -> InlineKeyboardMarkup:
     """Confirmation keyboard for account deletion"""
