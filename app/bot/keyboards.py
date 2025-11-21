@@ -37,6 +37,7 @@ def account_dashboard_keyboard(account_id: int, is_broadcasting: bool) -> Inline
         [InlineKeyboardButton(text="💬 Set Message", callback_data=f"set_message_{account_id}")],
         [InlineKeyboardButton(text="⏱️ Set Interval", callback_data=f"set_interval_{account_id}")],
         [InlineKeyboardButton(text="🕐 Set Schedule", callback_data=f"set_schedule_{account_id}")],
+        [InlineKeyboardButton(text="➕ Join Groups", callback_data=f"join_groups_{account_id}")],
         [InlineKeyboardButton(text="📊 View Logs", callback_data=f"view_logs_{account_id}")],
         [InlineKeyboardButton(text="🗑️ Delete Account", callback_data=f"delete_confirm_{account_id}")],
         [InlineKeyboardButton(text="⬅️ Back", callback_data="manage_accounts")]

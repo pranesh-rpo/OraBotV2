@@ -18,18 +18,72 @@ class SessionManager:
             Config.API_HASH,
             device_model="Ora Ads System",
             system_version="1.0",
-            app_version="1.0"
+            app_version="1.0",
+            connection_retries=5,
+            retry_delay=1
         )
+        
+        # Connect and ensure connection is established
         await client.connect()
+        
+        # Verify connection
+        if not client.is_connected():
+            raise Exception("Failed to establish connection to Telegram")
+        
         return client
     
-    async def send_code(self, client: TelegramClient, phone: str) -> str:
+    async def send_code(self, client: TelegramClient, phone: str, retry_count: int = 0) -> str:
         """Send OTP code to phone"""
         try:
+            # Try to send code normally first
             result = await client.send_code_request(phone)
             return result.phone_code_hash
+            
         except Exception as e:
-            raise Exception(f"Failed to send code: {str(e)}")
+            error_msg = str(e)
+            
+            # Specific error handling
+            if "PHONE_NUMBER_INVALID" in error_msg:
+                raise Exception("Invalid phone number format. Please use international format: +1234567890")
+            
+            elif "PHONE_NUMBER_BANNED" in error_msg:
+                raise Exception("This phone number is banned from Telegram. Please use a different number.")
+            
+            elif "PHONE_NUMBER_FLOOD" in error_msg or "FLOOD" in error_msg:
+                raise Exception("Too many attempts detected. Please wait 1-2 hours before trying again.")
+            
+            elif "PHONE_CODE_EXPIRED" in error_msg:
+                raise Exception("Previous code expired. Please try again.")
+            
+            elif "SEND_CODE_UNAVAILABLE" in error_msg:
+                raise Exception("Telegram code service temporarily unavailable. Please try again in 5-10 minutes.")
+            
+            elif "TIMEOUT" in error_msg.upper() or "TIMED OUT" in error_msg.upper():
+                # Retry once on timeout
+                if retry_count < 1:
+                    await asyncio.sleep(3)
+                    return await self.send_code(client, phone, retry_count + 1)
+                raise Exception("Connection timeout. Please check your internet and try again.")
+            
+            elif "A wait of" in error_msg:
+                # Extract wait time if present
+                try:
+                    wait_seconds = int(error_msg.split('A wait of ')[1].split(' seconds')[0])
+                    wait_minutes = wait_seconds // 60
+                    if wait_minutes > 0:
+                        raise Exception(f"Rate limited. Please wait {wait_minutes} minutes and try again.")
+                    else:
+                        raise Exception(f"Rate limited. Please wait {wait_seconds} seconds and try again.")
+                except:
+                    raise Exception("Rate limited by Telegram. Please wait 5-10 minutes and try again.")
+            
+            else:
+                # Generic error with helpful message
+                raise Exception(f"Unable to send verification code. This could be due to:\n"
+                              f"• Telegram server issues\n"
+                              f"• Rate limiting (wait 5-10 minutes)\n"
+                              f"• Network connectivity\n\n"
+                              f"Please try again shortly.")
     
     async def sign_in(self, client: TelegramClient, phone: str, 
                       code: str, phone_code_hash: str, 

@@ -31,6 +31,25 @@ class DatabaseOperations:
     # ACCOUNT OPERATIONS
     async def add_account(self, user_id: int, phone: str, session_string: str, first_name: str = None):
         async with aiosqlite.connect(self.db_path) as db:
+            # Enable foreign key constraints
+            await db.execute("PRAGMA foreign_keys = ON")
+            
+            # Check if account with this phone number exists (even if soft-deleted)
+            # If it exists, delete it first to avoid unique constraint violation
+            async with db.execute(
+                "SELECT id FROM accounts WHERE phone_number = ?", (phone,)
+            ) as cursor:
+                existing = await cursor.fetchone()
+                if existing:
+                    existing_id = existing[0]
+                    # Delete the old account and all related data in the same transaction
+                    await db.execute("DELETE FROM groups WHERE account_id = ?", (existing_id,))
+                    await db.execute("DELETE FROM logs WHERE account_id = ?", (existing_id,))
+                    await db.execute("DELETE FROM schedules WHERE account_id = ?", (existing_id,))
+                    await db.execute("DELETE FROM messages WHERE account_id = ?", (existing_id,))
+                    await db.execute("DELETE FROM accounts WHERE id = ?", (existing_id,))
+            
+            # Now insert the new account
             cursor = await db.execute(
                 """INSERT INTO accounts (user_id, phone_number, session_string, first_name) 
                    VALUES (?, ?, ?, ?)""",
@@ -64,9 +83,47 @@ class DatabaseOperations:
             )
             await db.commit()
     
-    async def delete_account(self, account_id: int):
+    async def set_manual_interval(self, account_id: int, interval_minutes: int):
+        """Set manual interval for account (must be > 7 minutes)"""
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("UPDATE accounts SET is_active = 0 WHERE id = ?", (account_id,))
+            await db.execute(
+                "UPDATE accounts SET manual_interval = ? WHERE id = ?",
+                (interval_minutes, account_id)
+            )
+            await db.commit()
+    
+    async def get_manual_interval(self, account_id: int) -> Optional[int]:
+        """Get manual interval for account"""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT manual_interval FROM accounts WHERE id = ?",
+                (account_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row and row[0] is not None else None
+    
+    async def delete_account(self, account_id: int):
+        """Permanently delete account and all related data"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Enable foreign key constraints
+            await db.execute("PRAGMA foreign_keys = ON")
+            
+            # Delete related data first (to avoid foreign key issues)
+            # Delete groups
+            await db.execute("DELETE FROM groups WHERE account_id = ?", (account_id,))
+            
+            # Delete logs
+            await db.execute("DELETE FROM logs WHERE account_id = ?", (account_id,))
+            
+            # Delete schedules
+            await db.execute("DELETE FROM schedules WHERE account_id = ?", (account_id,))
+            
+            # Delete messages
+            await db.execute("DELETE FROM messages WHERE account_id = ?", (account_id,))
+            
+            # Finally, delete the account itself
+            await db.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+            
             await db.commit()
     
     # MESSAGE OPERATIONS

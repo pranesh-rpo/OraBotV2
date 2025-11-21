@@ -91,8 +91,21 @@ Your privacy and security are our top priorities.
 <i>We only store what's necessary to make Ora Ads work for you.</i>
 """
 
-def account_info_message(account: dict) -> str:
+async def account_info_message(account: dict, db) -> str:
+    """Generate account info message with settings"""
+    
     status = "🟢 Active - Broadcasting" if account['is_broadcasting'] else "🔴 Inactive"
+    
+    # Get manual interval
+    manual_interval = account.get('manual_interval')
+    interval_text = f"{manual_interval} minutes" if manual_interval else "Not set (default: ~5 msg/hr)"
+    
+    # Get schedule
+    schedule = await db.get_schedule(account['id'])
+    schedule_text = ""
+    if schedule:
+        schedule_text = f"\n<b>Schedule:</b> {schedule['start_time']} - {schedule['end_time']}"
+    
     return f"""
 <b>📱 Account Dashboard</b>
 
@@ -100,6 +113,9 @@ def account_info_message(account: dict) -> str:
 <b>Status:</b> {status}
 <b>Name:</b> {account.get('first_name', 'N/A')}
 <b>Added:</b> {account['created_at'][:10]}
+
+<b>Settings:</b>
+<b>Interval:</b> {interval_text}{schedule_text}
 
 <b>Choose an action:</b>
 """
@@ -113,13 +129,32 @@ To link a new Telegram account, I'll need:
 2️⃣ OTP code from Telegram
 3️⃣ 2FA password (if enabled)
 
+<b>📱 Phone Number Format:</b>
+• Must start with <code>+</code>
+• Include country code
+• No spaces or special characters
+
+<b>✅ Correct Examples:</b>
+• USA: <code>+11234567890</code>
+• UK: <code>+447123456789</code>
+• India: <code>+919876543210</code>
+• Russia: <code>+79123456789</code>
+
+<b>❌ Wrong Examples:</b>
+• <code>1234567890</code> (missing +)
+• <code>+1 123 456 7890</code> (has spaces)
+• <code>+1-123-456-7890</code> (has dashes)
+
 <b>⚠️ Important:</b>
-• Use format: +1234567890
 • Your account will be renamed to: "FirstName | Ora Ads"
 • Bio will be set to: "Powered By @OraAdbot"
 • We'll fetch all your joined groups
 
-<i>Send your phone number now (e.g., +919876543210)</i>
+<b>⏰ Rate Limits:</b>
+• If you get "rate limited", wait 5-10 minutes
+• Don't request codes multiple times rapidly
+
+<i>📝 Send your phone number now (example: +919876543210)</i>
 """
 
 def logs_message(logs: list) -> str:

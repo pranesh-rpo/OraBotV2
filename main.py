@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import signal
+import sys
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -7,6 +9,7 @@ from config import Config
 from app.database.models import Database
 from app.bot import handlers_start, handlers_account
 from app.client.session_manager import session_manager
+from app.utils.lock import lock
 
 # Configure logging
 logging.basicConfig(
@@ -14,6 +17,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Global bot instance for signal handlers
+bot_instance = None
 
 async def on_startup(bot: Bot):
     """Actions on bot startup"""
@@ -52,13 +58,44 @@ async def on_shutdown():
     # Disconnect all Telegram clients
     await session_manager.disconnect_all()
     
+    # Release lock
+    lock.release()
+    
     logger.info("✅ Shutdown complete")
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    logger.info(f"⚠️  Received signal {signum}")
+    sys.exit(0)
 
 async def main():
     """Main function"""
+    global bot_instance
+    
+    # Check for single instance
+    if not lock.acquire():
+        logger.error("❌ Another instance of Ora Ads is already running!")
+        logger.error("❌ Please stop the other instance first.")
+        logger.info("")
+        logger.info("💡 Quick fix:")
+        logger.info("   Linux/Mac: ./bot_manager.sh kill-all")
+        logger.info("   Windows: bot_manager.bat -> Option 5")
+        logger.info("")
+        logger.info("💡 Manual fix:")
+        logger.info("   ps aux | grep 'python.*main.py'")
+        logger.info("   kill -9 <PID>")
+        logger.info("   rm -f /tmp/ora_ads.lock")
+        sys.exit(1)
+    
+    logger.info("✅ Lock acquired - Single instance confirmed")
+    
+    # Setup signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     try:
         # Initialize bot and dispatcher
-        bot = Bot(token=Config.BOT_TOKEN, parse_mode=ParseMode.HTML)
+        bot_instance = Bot(token=Config.BOT_TOKEN, parse_mode=ParseMode.HTML)
         dp = Dispatcher(storage=MemoryStorage())
         
         # Register routers
@@ -66,11 +103,29 @@ async def main():
         dp.include_router(handlers_account.router)
         
         # Startup actions
-        await on_startup(bot)
+        await on_startup(bot_instance)
         
-        # Start polling
+        # Check for existing bot sessions and terminate them
+        logger.info("🔍 Checking for conflicting bot sessions...")
+        try:
+            # Try to delete webhook (in case bot was running as webhook)
+            await bot_instance.delete_webhook(drop_pending_updates=True)
+            logger.info("✅ Webhook cleared")
+        except Exception as e:
+            logger.warning(f"⚠️  Could not clear webhook: {e}")
+        
+        # Short delay to ensure previous sessions are cleared
+        await asyncio.sleep(2)
+        
+        # Start polling with optimized settings
         logger.info("🎯 Bot is polling...")
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        await dp.start_polling(
+            bot_instance, 
+            allowed_updates=dp.resolve_used_update_types(),
+            drop_pending_updates=True,  # Drop pending updates on start
+            handle_as_tasks=True,  # Handle updates concurrently
+            polling_timeout=10  # Faster timeout
+        )
         
     except KeyboardInterrupt:
         logger.info("⚠️  Interrupted by user")

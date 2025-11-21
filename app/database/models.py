@@ -32,10 +32,25 @@ class Database:
                     first_name TEXT,
                     is_active BOOLEAN DEFAULT 1,
                     is_broadcasting BOOLEAN DEFAULT 0,
+                    manual_interval INTEGER DEFAULT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )
             """)
+            
+            # Add manual_interval column if it doesn't exist (for existing databases)
+            try:
+                # Check if column exists by trying to query it
+                async with db.execute("SELECT manual_interval FROM accounts LIMIT 1") as cursor:
+                    await cursor.fetchone()
+            except:
+                # Column doesn't exist, add it
+                try:
+                    await db.execute("ALTER TABLE accounts ADD COLUMN manual_interval INTEGER DEFAULT NULL")
+                    await db.commit()
+                except Exception as e:
+                    # Ignore if column already exists or other errors
+                    pass
             
             # Messages table
             await db.execute("""
