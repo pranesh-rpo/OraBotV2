@@ -1,6 +1,7 @@
 from aiogram import Router, F
+import asyncio
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from app.database.operations import DatabaseOperations
 from app.bot.keyboards import (
@@ -29,6 +30,26 @@ async def check_user_verification(bot, user_id: int) -> bool:
 async def cmd_start(message: Message, state: FSMContext):
     """Handle /start command"""
     await state.clear()
+    try:
+        if message.chat.type == "private":
+            chat_id = message.chat.id
+            start_id = message.message_id
+            ids = list(range(max(1, start_id - 200), start_id))
+            batch = []
+            for mid in ids:
+                async def del_one(m=mid):
+                    try:
+                        await message.bot.delete_message(chat_id, m)
+                    except Exception:
+                        return
+                batch.append(del_one())
+                if len(batch) >= 20:
+                    await asyncio.gather(*batch, return_exceptions=True)
+                    batch = []
+            if batch:
+                await asyncio.gather(*batch, return_exceptions=True)
+    except Exception:
+        pass
     
     user = message.from_user
     await db.add_user(user.id, user.username, user.first_name)
@@ -49,6 +70,11 @@ async def cmd_start(message: Message, state: FSMContext):
             reply_markup=main_menu_keyboard(),
             parse_mode="HTML"
         )
+    try:
+        gif = FSInputFile("welcome.gif")
+        await message.answer_animation(gif)
+    except Exception:
+        pass
 
 @router.callback_query(F.data == "check_verification")
 async def callback_check_verification(callback: CallbackQuery):

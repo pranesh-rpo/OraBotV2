@@ -8,6 +8,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from config import Config
 from app.database.models import Database
 from app.bot import handlers_start, handlers_account
+from app.scheduler import schedule_handlers
+from app.scheduler.task_manager import schedule_task_manager
 from app.client.session_manager import session_manager
 from app.utils.lock import lock
 
@@ -50,6 +52,7 @@ async def on_startup(bot: Bot):
     
     logger.info("✅ Bot commands set")
     logger.info(f"✅ Bot started: @{Config.BOT_USERNAME}")
+    await schedule_task_manager.start()
 
 async def on_shutdown():
     """Actions on bot shutdown"""
@@ -57,6 +60,7 @@ async def on_shutdown():
     
     # Disconnect all Telegram clients
     await session_manager.disconnect_all()
+    await schedule_task_manager.stop()
     
     # Release lock
     lock.release()
@@ -101,6 +105,7 @@ async def main():
         # Register routers
         dp.include_router(handlers_start.router)
         dp.include_router(handlers_account.router)
+        dp.include_router(schedule_handlers.router)
         
         # Startup actions
         await on_startup(bot_instance)

@@ -36,9 +36,6 @@ class SetMessage(StatesGroup):
 class SetInterval(StatesGroup):
     interval = State()
 
-class SetSchedule(StatesGroup):
-    start_time = State()
-    end_time = State()
 
 class JoinGroups(StatesGroup):
     group_link = State()
@@ -657,113 +654,6 @@ async def process_set_interval(message: Message, state: FSMContext):
             parse_mode="HTML"
         )
 
-# SET SCHEDULE
-@router.callback_query(F.data.startswith("set_schedule_"))
-async def callback_set_schedule(callback: CallbackQuery, state: FSMContext):
-    """Start set schedule process"""
-    account_id = int(callback.data.split("_")[2])
-    
-    schedule = await db.get_schedule(account_id)
-    schedule_text = ""
-    if schedule:
-        schedule_text = (
-            f"<b>Current Schedule:</b>\n"
-            f"Start: {schedule['start_time']}\n"
-            f"End: {schedule['end_time']}\n\n"
-        )
-    
-    await callback.message.edit_text(
-        f"🕐 <b>Set Broadcast Schedule</b>\n\n"
-        f"{schedule_text}"
-        f"Enter the start time in 24-hour format (HH:MM).\n"
-        f"<b>Example:</b> <code>09:00</code> for 9:00 AM\n"
-        f"<b>Example:</b> <code>14:30</code> for 2:30 PM\n\n"
-        f"<i>Broadcast will automatically start at this time and stop at the end time.</i>",
-        reply_markup=cancel_keyboard(),
-        parse_mode="HTML"
-    )
-    await state.update_data(account_id=account_id)
-    await state.set_state(SetSchedule.start_time)
-    await callback.answer()
-
-@router.message(SetSchedule.start_time)
-async def process_set_schedule_start(message: Message, state: FSMContext):
-    """Process start time and ask for end time"""
-    data = await state.get_data()
-    account_id = data['account_id']
-    
-    start_time = message.text.strip()
-    
-    # Validate time format
-    try:
-        from datetime import datetime
-        datetime.strptime(start_time, "%H:%M")
-    except ValueError:
-        await message.answer(
-            "❌ <b>Invalid Time Format</b>\n\n"
-            "Please enter time in HH:MM format (24-hour).\n"
-            "<b>Examples:</b>\n"
-            "• <code>09:00</code> for 9:00 AM\n"
-            "• <code>14:30</code> for 2:30 PM\n"
-            "• <code>23:59</code> for 11:59 PM\n\n"
-            "Please try again:",
-            reply_markup=cancel_keyboard(),
-            parse_mode="HTML"
-        )
-        return
-    
-    await state.update_data(start_time=start_time)
-    
-    await message.answer(
-        f"✅ <b>Start Time Set: {start_time}</b>\n\n"
-        f"Now enter the end time in 24-hour format (HH:MM).\n"
-        f"<b>Example:</b> <code>18:00</code> for 6:00 PM\n\n"
-        f"<i>The broadcast will automatically stop at this time.</i>",
-        reply_markup=cancel_keyboard(),
-        parse_mode="HTML"
-    )
-    await state.set_state(SetSchedule.end_time)
-
-@router.message(SetSchedule.end_time)
-async def process_set_schedule_end(message: Message, state: FSMContext):
-    """Process end time and save schedule"""
-    data = await state.get_data()
-    account_id = data['account_id']
-    start_time = data['start_time']
-    
-    end_time = message.text.strip()
-    
-    # Validate time format
-    try:
-        from datetime import datetime
-        datetime.strptime(end_time, "%H:%M")
-    except ValueError:
-        await message.answer(
-            "❌ <b>Invalid Time Format</b>\n\n"
-            "Please enter time in HH:MM format (24-hour).\n"
-            "<b>Examples:</b>\n"
-            "• <code>09:00</code> for 9:00 AM\n"
-            "• <code>14:30</code> for 2:30 PM\n"
-            "• <code>23:59</code> for 11:59 PM\n\n"
-            "Please try again:",
-            reply_markup=cancel_keyboard(),
-            parse_mode="HTML"
-        )
-        return
-    
-    # Save schedule
-    await db.set_schedule(account_id, start_time, end_time)
-    await db.add_log(account_id, "settings", f"Schedule set: {start_time} - {end_time}", "success")
-    
-    await message.answer(
-        f"✅ <b>Schedule Set Successfully!</b>\n\n"
-        f"<b>Start Time:</b> {start_time}\n"
-        f"<b>End Time:</b> {end_time}\n\n"
-        f"<i>Broadcast will automatically start and stop at these times.</i>",
-        reply_markup=back_button(f"account_{account_id}"),
-        parse_mode="HTML"
-    )
-    await state.clear()
 
 # VIEW LOGS
 @router.callback_query(F.data.startswith("view_logs_"))
