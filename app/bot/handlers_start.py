@@ -1,7 +1,7 @@
 from aiogram import Router, F
 import asyncio
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from app.database.operations import DatabaseOperations
 from app.bot.keyboards import (
@@ -23,18 +23,28 @@ async def check_user_verification(bot, user_id: int) -> bool:
             user_id
         )
         return member.status in ['member', 'administrator', 'creator']
-    except:
+    except Exception as e:
+        # Log the error for debugging but return False quickly
         return False
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     """Handle /start command"""
     await state.clear()
+    
+    user = message.from_user
+    
+    # Run user data addition and verification check concurrently
+    user_task = db.add_user(user.id, user.username, user.first_name)
+    verify_task = check_user_verification(message.bot, user.id)
+    
+    # Quick cleanup - only delete last 10 messages to reduce delay
+    cleanup_task = None
     try:
         if message.chat.type == "private":
             chat_id = message.chat.id
             start_id = message.message_id
-            ids = list(range(max(1, start_id - 200), start_id))
+            ids = list(range(max(1, start_id - 10), start_id))  # Reduced from 200 to 10
             batch = []
             for mid in ids:
                 async def del_one(m=mid):
@@ -43,7 +53,7 @@ async def cmd_start(message: Message, state: FSMContext):
                     except Exception:
                         return
                 batch.append(del_one())
-                if len(batch) >= 20:
+                if len(batch) >= 5:  # Reduced batch size from 20 to 5
                     await asyncio.gather(*batch, return_exceptions=True)
                     batch = []
             if batch:
@@ -51,11 +61,9 @@ async def cmd_start(message: Message, state: FSMContext):
     except Exception:
         pass
     
-    user = message.from_user
-    await db.add_user(user.id, user.username, user.first_name)
-    
-    # Check verification
-    is_verified = await check_user_verification(message.bot, user.id)
+    # Wait for user data and verification to complete
+    await user_task
+    is_verified = await verify_task
     
     if not is_verified:
         await message.answer(
@@ -70,11 +78,6 @@ async def cmd_start(message: Message, state: FSMContext):
             reply_markup=main_menu_keyboard(),
             parse_mode="HTML"
         )
-    try:
-        gif = FSInputFile("welcome.gif")
-        await message.answer_animation(gif)
-    except Exception:
-        pass
 
 @router.callback_query(F.data == "check_verification")
 async def callback_check_verification(callback: CallbackQuery):

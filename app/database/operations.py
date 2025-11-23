@@ -82,10 +82,29 @@ class DatabaseOperations:
     async def update_account_broadcast_status(self, account_id: int, status: bool):
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
-                "UPDATE accounts SET is_broadcasting = ? WHERE id = ?",
+                "UPDATE accounts SET is_broadcasting = ?, manual_override = 0 WHERE id = ?",
                 (1 if status else 0, account_id)
             )
             await db.commit()
+    
+    async def set_manual_override(self, account_id: int, override: bool):
+        """Set manual override flag for broadcast control"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE accounts SET manual_override = ? WHERE id = ?",
+                (1 if override else 0, account_id)
+            )
+            await db.commit()
+    
+    async def get_account_with_override(self, account_id: int) -> Optional[Dict]:
+        """Get account with manual override status"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM accounts WHERE id = ?", (account_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
     
     async def set_manual_interval(self, account_id: int, interval_minutes: int):
         """Set manual interval for account (must be > 7 minutes)"""
@@ -105,6 +124,16 @@ class DatabaseOperations:
             ) as cursor:
                 row = await cursor.fetchone()
                 return row[0] if row and row[0] is not None else None
+    
+    async def get_all_broadcasting_accounts(self) -> List[Dict]:
+        """Get all accounts that have broadcasting status set to True"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT id, user_id, phone_number FROM accounts WHERE is_broadcasting = 1 AND is_active = 1"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
     
     async def delete_account(self, account_id: int):
         """Permanently delete account and all related data"""
@@ -156,15 +185,15 @@ class DatabaseOperations:
     
     # SCHEDULE OPERATIONS
     async def set_schedule(self, account_id: int, start_time: str, end_time: str, 
-                          min_interval: int = 5, max_interval: int = 15):
+                          schedule_type: str = "normal", min_interval: int = 5, max_interval: int = 15):
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "DELETE FROM schedules WHERE account_id = ?", (account_id,)
             )
             await db.execute(
-                """INSERT INTO schedules (account_id, start_time, end_time, min_interval, max_interval)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (account_id, start_time, end_time, min_interval, max_interval)
+                """INSERT INTO schedules (account_id, start_time, end_time, schedule_type, min_interval, max_interval)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (account_id, start_time, end_time, schedule_type, min_interval, max_interval)
             )
             await db.commit()
     

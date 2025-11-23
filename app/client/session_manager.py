@@ -1,6 +1,7 @@
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
+from telethon.tl.functions.account import UpdateProfileRequest
 from typing import Optional, Dict
 from config import Config
 from app.utils.encryption import encryption
@@ -12,15 +13,18 @@ class SessionManager:
     
     async def create_client(self, phone: str) -> TelegramClient:
         """Create a new Telegram client for login"""
+        # Generate unique session name to avoid conflicts
+        import uuid
+        session_id = str(uuid.uuid4())[:8]
+        
+        # Use unique device info to avoid conflicts with existing Telegram sessions
         client = TelegramClient(
             StringSession(),
             Config.API_ID,
             Config.API_HASH,
-            device_model="Ora Ads System",
+            device_model=f"Ora Ads {session_id}",
             system_version="1.0",
-            app_version="1.0",
-            connection_retries=5,
-            retry_delay=1
+            app_version="1.0"
         )
         
         # Connect and ensure connection is established
@@ -77,12 +81,23 @@ class SessionManager:
                 except:
                     raise Exception("Rate limited by Telegram. Please wait 5-10 minutes and try again.")
             
+            elif "AUTH_KEY_PERM_EMPTY" in error_msg or "AUTH_KEY_DUPLICATED" in error_msg:
+                # Session conflict errors
+                raise Exception("Session conflict detected. This might happen if you're using the same account in multiple apps. Please wait 2-3 minutes and try again.")
+            
+            elif "SESSION_PASSWORD_NEEDED" in error_msg:
+                raise Exception("2FA password required. Please provide your 2FA password.")
+            
+            elif "PHONE_CODE_INVALID" in error_msg or "CODE_INVALID" in error_msg:
+                raise Exception("Invalid verification code. Please check and try again.")
+            
             else:
                 # Generic error with helpful message
                 raise Exception(f"Unable to send verification code. This could be due to:\n"
                               f"• Telegram server issues\n"
                               f"• Rate limiting (wait 5-10 minutes)\n"
-                              f"• Network connectivity\n\n"
+                              f"• Network connectivity\n"
+                              f"• Session conflicts (using same account in multiple apps)\n\n"
                               f"Please try again shortly.")
     
     async def sign_in(self, client: TelegramClient, phone: str, 
@@ -98,7 +113,21 @@ class SessionManager:
         except PhoneCodeInvalidError:
             raise Exception("Invalid OTP code")
         except Exception as e:
-            raise Exception(f"Login failed: {str(e)}")
+            error_msg = str(e)
+            
+            # Handle specific authentication errors
+            if "PHONE_CODE_EXPIRED" in error_msg or "confirmation code has expired" in error_msg.lower():
+                raise Exception("The confirmation code has expired. Please request a new code.")
+            elif "PHONE_CODE_INVALID" in error_msg or "invalid code" in error_msg.lower():
+                raise Exception("Invalid verification code. Please check and try again.")
+            elif "SESSION_PASSWORD_NEEDED" in error_msg:
+                raise Exception("2FA password required. Please provide your 2FA password.")
+            elif "AUTH_KEY_PERM_EMPTY" in error_msg or "AUTH_KEY_DUPLICATED" in error_msg:
+                raise Exception("Session conflict detected. Please wait 2-3 minutes and try again.")
+            elif "FLOOD_WAIT" in error_msg or "flood" in error_msg.lower():
+                raise Exception("Too many attempts. Please wait 5-10 minutes before trying again.")
+            else:
+                raise Exception(f"Login failed: {error_msg}")
         
         # Get user info
         me = await client.get_me()
@@ -125,11 +154,15 @@ class SessionManager:
             # Decrypt session
             decrypted_session = encryption.decrypt(session_string)
             
+            # Create client with unique session parameters to avoid conflicts
+            import uuid
+            session_suffix = str(uuid.uuid4())[:8]
+            
             client = TelegramClient(
                 StringSession(decrypted_session),
                 Config.API_ID,
                 Config.API_HASH,
-                device_model="Ora Ads System",
+                device_model=f"Ora Ads {session_suffix}",
                 system_version="1.0",
                 app_version="1.0"
             )
@@ -174,9 +207,6 @@ class SessionManager:
         """Disconnect all active clients"""
         for account_id in list(self.active_clients.keys()):
             await self.disconnect_client(account_id)
-
-# Import for profile update
-from telethon.tl.functions.account import UpdateProfileRequest
 
 # Global instance
 session_manager = SessionManager()

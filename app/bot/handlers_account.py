@@ -15,7 +15,8 @@ from app.client.broadcast_worker import broadcast_worker
 from app.utils.encryption import encryption
 from app.bot.keyboards import (
     accounts_list_keyboard, account_dashboard_keyboard,
-    delete_confirmation_keyboard, cancel_keyboard, back_button
+    delete_confirmation_keyboard, cancel_keyboard, back_button, otp_keypad,
+    join_groups_method_keyboard
 )
 from app.bot.menus import (
     account_info_message, link_account_start, logs_message
@@ -24,11 +25,25 @@ from app.bot.menus import (
 router = Router()
 db = DatabaseOperations()
 
+async def safe_edit_message(callback: CallbackQuery, text: str, reply_markup=None, parse_mode=None):
+    """Safely edit a message, avoiding 'message not modified' errors"""
+    try:
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
+    except Exception as e:
+        if "message is not modified" not in str(e):
+            # Re-raise if it's not the "not modified" error
+            raise
+
 # FSM States
 class LinkAccount(StatesGroup):
     phone = State()
     code = State()
     password = State()
+    otp_code = State()  # New state for keypad OTP input
 
 class SetMessage(StatesGroup):
     message = State()
@@ -39,6 +54,7 @@ class SetInterval(StatesGroup):
 
 class JoinGroups(StatesGroup):
     group_link = State()
+    file_upload = State()
 
 # MANAGE ACCOUNTS
 @router.callback_query(F.data == "manage_accounts")
@@ -141,12 +157,14 @@ async def process_phone(message: Message, state: FSMContext):
         await status_msg.edit_text(
             "✅ <b>Code Sent Successfully!</b>\n\n"
             "📨 Check your Telegram for the verification code.\n"
-            "💬 Enter the code below:\n\n"
-            "<i>The code is usually 5 digits (e.g., 12345)</i>",
-            reply_markup=cancel_keyboard(),
+            "💬 Enter the code using the keypad below:\n\n"
+            "<i>The code is usually 5 digits (e.g., 12345)</i>\n\n"
+            "<b>Your code:</b> <code>_</code>",
+            reply_markup=otp_keypad(),
             parse_mode="HTML"
         )
-        await state.set_state(LinkAccount.code)
+        await state.update_data(otp_code="")  # Initialize empty OTP code
+        await state.set_state(LinkAccount.otp_code)
         
     except Exception as e:
         error_text = str(e)
@@ -234,7 +252,234 @@ async def process_phone(message: Message, state: FSMContext):
         
         await state.clear()
 
-@router.message(LinkAccount.code)
+# OTP KEYPAD HANDLERS
+@router.callback_query(F.data.startswith("otp_"))
+async def handle_otp_keypad(callback: CallbackQuery, state: FSMContext):
+    """Handle OTP keypad button presses"""
+    data = await state.get_data()
+    current_code = data.get('otp_code', '')
+    
+    if callback.data == "otp_cancel":
+        # Cancel OTP input
+        await callback.message.edit_text(
+            "❌ <b>Verification Cancelled</b>\n\n"
+            "Please start again with /start",
+            reply_markup=back_button("main_menu"),
+            parse_mode="HTML"
+        )
+        await state.clear()
+        await callback.answer()
+        return
+    
+    elif callback.data == "otp_clear":
+        # Clear the code
+        current_code = ""
+        await state.update_data(otp_code="")
+        
+    elif callback.data == "otp_backspace":
+        # Remove last digit
+        if current_code:
+            current_code = current_code[:-1]
+            await state.update_data(otp_code=current_code)
+    
+    elif callback.data == "otp_submit":
+        # Submit the code
+        if len(current_code) < 3:
+            await callback.answer("⚠️ Code too short!", show_alert=True)
+            return
+        
+        # Process the OTP code
+        await process_otp_verification(callback, current_code, state)
+        return
+    
+    else:
+        # Number button pressed
+        digit = callback.data.split("_")[1]
+        if len(current_code) < 10:  # Limit code length
+            current_code += digit
+            await state.update_data(otp_code=current_code)
+    
+    # Update the display
+    code_display = current_code if current_code else "_"
+    masked_code = "●" * (len(current_code) - 1) + current_code[-1:] if current_code else "_"
+    
+    await callback.message.edit_text(
+        "✅ <b>Code Sent Successfully!</b>\n\n"
+        "📨 Check your Telegram for the verification code.\n"
+        "💬 Enter the code using the keypad below:\n\n"
+        "<i>The code is usually 5 digits (e.g., 12345)</i>\n\n"
+        f"<b>Your code:</b> <code>{masked_code}</code>",
+        reply_markup=otp_keypad(),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+async def process_otp_verification(callback: CallbackQuery, code: str, state: FSMContext):
+    """Process the OTP verification"""
+    data = await state.get_data()
+    
+    if not data.get('client'):
+        await callback.message.edit_text(
+            "❌ <b>Session Expired</b>\n\n"
+            "Please start again with /start",
+            reply_markup=back_button("main_menu"),
+            parse_mode="HTML"
+        )
+        await state.clear()
+        return
+    
+    # Show processing message
+    await callback.message.edit_text(
+        "🔄 <b>Verifying Code...</b>\n\n"
+        "⏳ Authenticating with Telegram...",
+        parse_mode="HTML"
+    )
+    
+    client = data['client']
+    
+    try:
+        # Ensure client is still connected
+        if not client.is_connected():
+            await callback.message.edit_text(
+                "🔌 <b>Reconnecting...</b>\n\n"
+                "⏳ Re-establishing connection...",
+                parse_mode="HTML"
+            )
+            await client.connect()
+        
+        # Update status
+        await callback.message.edit_text(
+            "🔐 <b>Signing In...</b>\n\n"
+            "⏳ Creating secure session...",
+            parse_mode="HTML"
+        )
+        
+        # Try to sign in
+        session_string, first_name, user_id = await session_manager.sign_in(
+            client,
+            data['phone'],
+            code,
+            data['phone_code_hash']
+        )
+        
+        # Update status
+        await callback.message.edit_text(
+            "📊 <b>Fetching Your Groups...</b>\n\n"
+            "⏳ This may take a moment...",
+            parse_mode="HTML"
+        )
+        
+        # Encrypt and save
+        encrypted_session = encryption.encrypt(session_string)
+        account_id = await db.add_account(
+            callback.from_user.id,
+            data['phone'],
+            encrypted_session,
+            first_name
+        )
+        
+        # Fetch and save groups
+        groups = await session_manager.get_dialogs(client)
+        await db.save_groups(account_id, groups)
+        
+        # Disconnect client
+        await client.disconnect()
+        
+        await callback.message.edit_text(
+            f"✅ <b>Account Linked Successfully!</b>\n\n"
+            f"📱 Phone: <code>{data['phone']}</code>\n"
+            f"👤 Name: {first_name}\n"
+            f"📊 Groups Found: {len(groups)}\n\n"
+            f"Your account is ready to broadcast!",
+            reply_markup=back_button("manage_accounts"),
+            parse_mode="HTML"
+        )
+        await state.clear()
+        
+    except Exception as e:
+        error_msg = str(e)
+        
+        if "2FA_REQUIRED" in error_msg:
+            # Store code for 2FA step
+            await state.update_data(last_code=code, otp_code="")
+            
+            await callback.message.edit_text(
+                "🔐 <b>Two-Factor Authentication Required</b>\n\n"
+                "Your account has 2FA enabled.\n"
+                "Please enter your 2FA password:\n\n"
+                "<i>Your password will be deleted immediately after use.</i>",
+                reply_markup=cancel_keyboard(),
+                parse_mode="HTML"
+            )
+            await state.set_state(LinkAccount.password)
+            
+        elif "PHONE_CODE_INVALID" in error_msg or "Invalid verification code" in error_msg:
+            await callback.message.edit_text(
+                "❌ <b>Invalid Code</b>\n\n"
+                "The verification code you entered is incorrect.\n\n"
+                "📋 <b>Tips:</b>\n"
+                "• Check for typos\n"
+                "• Code is usually 5 digits\n"
+                "• Don't include spaces or dashes\n\n"
+                "Please try again with /start to get a new code.",
+                reply_markup=back_button("main_menu"),
+                parse_mode="HTML"
+            )
+            await state.clear()
+            try:
+                await client.disconnect()
+            except:
+                pass
+            
+        elif "PHONE_CODE_EXPIRED" in error_msg or "confirmation code has expired" in error_msg:
+            await callback.message.edit_text(
+                "⏰ <b>Code Expired</b>\n\n"
+                "The verification code has expired.\n"
+                "Codes are valid for 2-3 minutes only.\n\n"
+                "Please try again with /start to get a new code.",
+                reply_markup=back_button("main_menu"),
+                parse_mode="HTML"
+            )
+            await state.clear()
+            try:
+                await client.disconnect()
+            except:
+                pass
+            
+        elif "CONNECTION_LOST" in error_msg or "disconnected" in error_msg.lower():
+            await callback.message.edit_text(
+                "🔌 <b>Connection Lost</b>\n\n"
+                "Lost connection to Telegram during authentication.\n\n"
+                "📋 <b>Please try:</b>\n"
+                "1. Check your internet connection\n"
+                "2. Wait 1-2 minutes\n"
+                "3. Try again with /start\n\n"
+                "<i>This can happen due to network issues.</i>",
+                reply_markup=back_button("main_menu"),
+                parse_mode="HTML"
+            )
+            await state.clear()
+            try:
+                await client.disconnect()
+            except:
+                pass
+            
+        else:
+            await callback.message.edit_text(
+                f"❌ <b>Authentication Error</b>\n\n"
+                f"{error_msg}\n\n"
+                "📋 <b>Suggestions:</b>\n"
+                "• Try again with /start\n"
+                "• Check your internet connection\n"
+                "• Contact support if issue persists",
+                reply_markup=back_button("main_menu"),
+                parse_mode="HTML"
+            )
+            await state.clear()
+            try:
+                await client.disconnect()
+            except:
+                pass
 async def process_code(message: Message, state: FSMContext):
     """Process OTP code"""
     code = message.text.strip().replace('-', '').replace(' ', '')
@@ -511,7 +756,8 @@ async def callback_account_dashboard(callback: CallbackQuery):
         await callback.answer("Account not found", show_alert=True)
         return
     
-    await callback.message.edit_text(
+    await safe_edit_message(
+        callback,
         await account_info_message(account, db),
         reply_markup=account_dashboard_keyboard(account_id, account['is_broadcasting']),
         parse_mode="HTML"
@@ -530,15 +776,23 @@ async def callback_toggle_broadcast(callback: CallbackQuery):
         return
     
     if account['is_broadcasting']:
+        # User manually stopping broadcast - clear manual override
         success, msg = await broadcast_worker.stop_broadcast(account_id)
+        await db.set_manual_override(account_id, False)  # Clear manual override
+        await db.add_log(account_id, "broadcast", "Manual stop broadcast", "info")
     else:
+        # User manually starting broadcast - set manual override
         success, msg = await broadcast_worker.start_broadcast(account_id)
+        if success:
+            await db.set_manual_override(account_id, True)  # Set manual override
+            await db.add_log(account_id, "broadcast", "Manual start broadcast (schedule override)", "info")
     
     await callback.answer(msg, show_alert=True)
     
     # Refresh dashboard
     account = await db.get_account(account_id)
-    await callback.message.edit_text(
+    await safe_edit_message(
+        callback,
         await account_info_message(account, db),
         reply_markup=account_dashboard_keyboard(account_id, account['is_broadcasting']),
         parse_mode="HTML"
@@ -754,20 +1008,356 @@ async def callback_join_groups(callback: CallbackQuery, state: FSMContext):
     
     await callback.message.edit_text(
         "➕ <b>Join Groups</b>\n\n"
-        "Send me group links or usernames to join:\n\n"
-        "<b>Supported formats:</b>\n"
-        "• <code>https://t.me/groupname</code>\n"
-        "• <code>@groupname</code>\n"
-        "• <code>t.me/groupname</code>\n"
-        "• <code>https://t.me/joinchat/xxxxx</code>\n\n"
-        "<i>You can send multiple links, one per message.</i>\n"
-        "<i>Send /done when finished.</i>",
-        reply_markup=cancel_keyboard(),
+        "Choose how you want to add groups:\n\n"
+        "<b>Options:</b>\n"
+        "• 📝 <b>Send links manually</b> - One by one\n"
+        "• 📄 <b>Upload text file</b> - File with multiple links\n\n"
+        "<b>File format:</b>\n"
+        "• .txt file with group links\n"
+        "• One link per line\n"
+        "• Supports all link formats\n\n"
+        "<i>Choose your preferred method below:</i>",
+        reply_markup=join_groups_method_keyboard(),
         parse_mode="HTML"
     )
     await state.update_data(account_id=account_id)
-    await state.set_state(JoinGroups.group_link)
     await callback.answer()
+
+# JOIN GROUPS METHOD SELECTION
+@router.callback_query(F.data.startswith("join_method_"))
+async def callback_join_method(callback: CallbackQuery, state: FSMContext):
+    """Handle join groups method selection"""
+    method = callback.data.split("_")[2]
+    
+    if method == "manual":
+        await callback.message.edit_text(
+            "📝 <b>Send Group Links Manually</b>\n\n"
+            "Send me group links or usernames to join:\n\n"
+            "<b>Supported formats:</b>\n"
+            "• <code>https://t.me/groupname</code>\n"
+            "• <code>@groupname</code>\n"
+            "• <code>t.me/groupname</code>\n"
+            "• <code>https://t.me/joinchat/xxxxx</code>\n\n"
+            "<i>You can send multiple links, one per message.</i>\n"
+            "<i>Send /done when finished.</i>",
+            reply_markup=cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        await state.set_state(JoinGroups.group_link)
+        
+    elif method == "file":
+        await callback.message.edit_text(
+            "📄 <b>Upload Text File</b>\n\n"
+            "Upload a .txt file containing group links:\n\n"
+            "<b>File requirements:</b>\n"
+            "• .txt format only\n"
+            "• One group link per line\n"
+            "• No empty lines\n"
+            "• Max 1000 links per file\n\n"
+            "<b>Supported link formats:</b>\n"
+            "• <code>https://t.me/groupname</code>\n"
+            "• <code>@groupname</code>\n"
+            "• <code>t.me/groupname</code>\n"
+            "• <code>https://t.me/joinchat/xxxxx</code>\n\n"
+            "<i>The bot will join 5 groups every 5 minutes automatically.</i>\n"
+            "<i>You'll get progress updates.</i>",
+            reply_markup=cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        await state.set_state(JoinGroups.file_upload)
+    
+    await callback.answer()
+
+@router.message(JoinGroups.file_upload)
+async def process_file_upload(message: Message, state: FSMContext):
+    """Process uploaded file with group links"""
+    if not message.document:
+        await message.answer(
+            "❌ <b>Please upload a text file</b>\n\n"
+            "Make sure to upload a .txt file containing group links.",
+            reply_markup=cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Check file type
+    if not message.document.file_name.endswith('.txt'):
+        await message.answer(
+            "❌ <b>Invalid file format</b>\n\n"
+            "Please upload a .txt file only.",
+            reply_markup=cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Check file size (max 1MB)
+    if message.document.file_size > 1024 * 1024:  # 1MB
+        await message.answer(
+            "❌ <b>File too large</b>\n\n"
+            "Maximum file size is 1MB.\n"
+            "Please split your file into smaller parts.",
+            reply_markup=cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    try:
+        # Download file
+        file_info = await message.bot.get_file(message.document.file_id)
+        file_content = await message.bot.download_file(file_info.file_path)
+        
+        # Decode and parse links
+        content = file_content.decode('utf-8')
+        links = [line.strip() for line in content.split('\n') if line.strip()]
+        
+        if not links:
+            await message.answer(
+                "❌ <b>No links found</b>\n\n"
+                "The file appears to be empty or contains no valid links.",
+                reply_markup=cancel_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+        
+        if len(links) > 1000:
+            await message.answer(
+                "❌ <b>Too many links</b>\n\n"
+                f"Found {len(links)} links. Maximum allowed is 1000.\n"
+                "Please split your file into smaller parts.",
+                reply_markup=cancel_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+        
+        # Validate links format
+        valid_links = []
+        for link in links:
+            if any(x in link.lower() for x in ['t.me/', '@', 'joinchat']):
+                valid_links.append(link)
+        
+        if not valid_links:
+            await message.answer(
+                "❌ <b>No valid links found</b>\n\n"
+                "No valid Telegram group links were found in the file.\n\n"
+                "<b>Valid formats:</b>\n"
+                "• https://t.me/groupname\n"
+                "• @groupname\n"
+                "• t.me/groupname\n"
+                "• https://t.me/joinchat/xxxxx",
+                reply_markup=cancel_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+        
+        # Get account info
+        data = await state.get_data()
+        account_id = data['account_id']
+        account = await db.get_account(account_id)
+        
+        if not account:
+            await message.answer(
+                "❌ Account not found. Please start again.",
+                reply_markup=back_button("manage_accounts"),
+                parse_mode="HTML"
+            )
+            await state.clear()
+            return
+        
+        # Start batch joining process
+        await message.answer(
+            f"📄 <b>File Processed Successfully!</b>\n\n"
+            f"📊 Found <b>{len(valid_links)}</b> valid group links\n"
+            f"📱 Account: <code>{account['phone_number']}</code>\n\n"
+            f"⚡ <b>Batch joining started:</b>\n"
+            f"• 5 groups every 5 minutes\n"
+            f"• Automatic progress updates\n"
+            f"• Flood wait protection\n\n"
+            f"🕐 Estimated time: {len(valid_links) // 5 * 5} minutes\n\n"
+            f"<i>You'll receive updates as the process continues.</i>",
+            reply_markup=back_button(f"account_{account_id}"),
+            parse_mode="HTML"
+        )
+        
+        # Start background task for batch joining
+        asyncio.create_task(batch_join_groups(account_id, valid_links, message.from_user.id, message.chat.id))
+        await state.clear()
+        
+    except Exception as e:
+        await message.answer(
+            f"❌ <b>Failed to process file</b>\n\n"
+            f"Error: {str(e)}\n\n"
+            f"Please check your file format and try again.",
+            reply_markup=cancel_keyboard(),
+            parse_mode="HTML"
+        )
+
+async def batch_join_groups(account_id: int, links: list, user_id: int, chat_id: int):
+    """Background task to join groups in batches"""
+    try:
+        # Load account client
+        account = await db.get_account(account_id)
+        if not account:
+            return
+        
+        client = await session_manager.load_client(
+            account['session_string'],
+            account_id
+        )
+        
+        # Get bot instance for sending messages
+        from main import bot_instance
+        
+        joined_count = 0
+        failed_count = 0
+        already_member_count = 0
+        
+        # Process in batches of 5
+        for i in range(0, len(links), 5):
+            batch = links[i:i+5]
+            batch_results = []
+            
+            # Join each group in the batch
+            for link in batch:
+                try:
+                    result = await join_single_group(client, link)
+                    batch_results.append(result)
+                    
+                    if result['status'] == 'joined':
+                        joined_count += 1
+                    elif result['status'] == 'already_member':
+                        already_member_count += 1
+                    else:
+                        failed_count += 1
+                        
+                except Exception as e:
+                    failed_count += 1
+                    batch_results.append({'status': 'error', 'message': str(e)})
+            
+            # Send batch progress update
+            progress = i + len(batch)
+            total = len(links)
+            percentage = (progress / total) * 100
+            
+            await bot_instance.send_message(
+                chat_id,
+                f"📊 <b>Batch Progress Update</b>\n\n"
+                f"🔄 Progress: {progress}/{total} ({percentage:.1f}%)\n"
+                f"✅ Joined: {joined_count}\n"
+                f"ℹ️ Already member: {already_member_count}\n"
+                f"❌ Failed: {failed_count}\n\n"
+                f"<i>Processing next batch in 5 minutes...</i>",
+                parse_mode="HTML"
+            )
+            
+            # Wait 5 minutes between batches (except for last batch)
+            if progress < total:
+                await asyncio.sleep(300)  # 5 minutes
+        
+        # Final completion message
+        await bot_instance.send_message(
+            chat_id,
+            f"🎉 <b>Batch Joining Completed!</b>\n\n"
+            f"📊 <b>Final Results:</b>\n"
+            f"✅ Successfully joined: {joined_count}\n"
+            f"ℹ️ Already member: {already_member_count}\n"
+            f"❌ Failed: {failed_count}\n"
+            f"📝 Total processed: {len(links)}\n\n"
+            f"<i>All groups have been processed. Check your account dashboard.</i>",
+            parse_mode="HTML"
+        )
+        
+        # Refresh groups if broadcast is running
+        if account['is_broadcasting']:
+            await broadcast_worker.refresh_groups(account_id)
+            
+        # Disconnect client
+        await client.disconnect()
+        
+    except Exception as e:
+        try:
+            from main import bot_instance
+            await bot_instance.send_message(
+                chat_id,
+                f"❌ <b>Batch Joining Error</b>\n\n"
+                f"An error occurred during batch processing:\n"
+                f"{str(e)}\n\n"
+                f"Please check your account and try again.",
+                parse_mode="HTML"
+            )
+        except:
+            pass  # If we can't send message, at least don't crash
+
+async def join_single_group(client, group_input: str) -> dict:
+    """Join a single group and return result"""
+    try:
+        # Extract group identifier (reuse existing logic)
+        group_identifier = None
+        group_input_lower = group_input.lower()
+        
+        if 'joinchat' in group_input_lower:
+            if 'joinchat/' in group_input_lower:
+                group_identifier = group_input.split('joinchat/')[-1].split('?')[0].split('/')[0].strip()
+            else:
+                group_identifier = group_input.strip()
+        elif group_input_lower.startswith('https://t.me/') or group_input_lower.startswith('t.me/'):
+            group_identifier = group_input.split('t.me/')[-1].split('?')[0].split('/')[0].lstrip('@').strip()
+        elif group_input.startswith('@'):
+            group_identifier = group_input.lstrip('@').strip()
+        else:
+            return {'status': 'error', 'message': 'Invalid format'}
+        
+        # Try to join
+        try:
+            entity = None
+            group_title = None
+            group_id = None
+            already_member = False
+            
+            is_invite_link = 'joinchat' in group_input.lower() or (
+                len(group_identifier) > 20 and 
+                not group_identifier.startswith('@') and
+                '/' not in group_identifier
+            )
+            
+            if is_invite_link:
+                if 'joinchat/' in group_input.lower():
+                    invite_hash = group_input.split('joinchat/')[-1].split('?')[0].split('/')[0]
+                else:
+                    invite_hash = group_identifier
+                
+                result = await client(ImportChatInviteRequest(invite_hash))
+                if result.chats:
+                    entity = result.chats[0]
+                    group_title = getattr(entity, 'title', 'Unknown')
+                    group_id = entity.id
+            else:
+                entity = await client.get_entity(group_identifier)
+                group_title = getattr(entity, 'title', group_identifier)
+                group_id = entity.id
+                
+                try:
+                    await client(JoinChannelRequest(entity))
+                except UserAlreadyParticipantError:
+                    already_member = True
+                except Exception as join_err:
+                    try:
+                        await client(JoinChannelRequest(group_identifier))
+                    except UserAlreadyParticipantError:
+                        already_member = True
+                    except Exception:
+                        raise join_err
+            
+            return {
+                'status': 'already_member' if already_member else 'joined',
+                'title': group_title,
+                'id': group_id
+            }
+            
+        except Exception as e:
+            return {'status': 'error', 'message': str(e)}
+            
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
 
 @router.message(JoinGroups.group_link)
 async def process_join_group(message: Message, state: FSMContext):

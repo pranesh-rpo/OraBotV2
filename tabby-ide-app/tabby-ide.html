@@ -1,0 +1,1636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tabby IDE</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background: #1e1e1e;
+            color: #cccccc;
+        }
+
+        .ide-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* Title Bar - VSCode Style */
+        .title-bar {
+            height: 35px;
+            background: #323233;
+            border-bottom: 1px solid #1e1e1e;
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            -webkit-app-region: drag;
+        }
+
+        .title-bar-menu {
+            display: flex;
+            gap: 0;
+            -webkit-app-region: no-drag;
+        }
+
+        .menu-item {
+            padding: 0 12px;
+            height: 35px;
+            display: flex;
+            align-items: center;
+            font-size: 13px;
+            cursor: pointer;
+            color: #cccccc;
+        }
+
+        .menu-item:hover {
+            background: #3e3e42;
+        }
+
+        .title-bar-center {
+            flex: 1;
+            text-align: center;
+            font-size: 12px;
+            color: #cccccc;
+        }
+
+        .title-bar-right {
+            display: flex;
+            gap: 5px;
+            -webkit-app-region: no-drag;
+        }
+
+        /* Activity Bar - VSCode Left Icons */
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .activity-bar {
+            width: 48px;
+            background: #333333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px 0;
+            border-right: 1px solid #1e1e1e;
+        }
+
+        .activity-item {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: #858585;
+            position: relative;
+        }
+
+        .activity-item:hover {
+            color: #cccccc;
+        }
+
+        .activity-item.active {
+            color: #ffffff;
+        }
+
+        .activity-item.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 8px;
+            bottom: 8px;
+            width: 2px;
+            background: #007acc;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 300px;
+            background: #252526;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-header {
+            padding: 20px 20px 10px 20px;
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: #cccccc;
+            letter-spacing: 0.5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sidebar-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .icon-btn {
+            width: 22px;
+            height: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: #cccccc;
+            border-radius: 3px;
+        }
+
+        .icon-btn:hover {
+            background: #2a2d2e;
+        }
+
+        .file-tree {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 8px;
+        }
+
+        .file-item, .folder-item {
+            padding: 3px 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            border-radius: 3px;
+            user-select: none;
+            color: #cccccc;
+        }
+
+        .file-item:hover, .folder-item:hover {
+            background: #2a2d2e;
+        }
+
+        .file-item.active {
+            background: #094771;
+        }
+
+        .folder-children {
+            padding-left: 16px;
+        }
+
+        .folder-item .arrow {
+            width: 16px;
+            height: 16px;
+            transition: transform 0.15s;
+        }
+
+        .folder-item.expanded .arrow {
+            transform: rotate(90deg);
+        }
+
+        /* Editor Area */
+        .editor-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #1e1e1e;
+        }
+
+        .tabs-bar {
+            display: flex;
+            background: #2d2d2d;
+            overflow-x: auto;
+            border-bottom: 1px solid #1e1e1e;
+        }
+
+        .tabs-bar::-webkit-scrollbar {
+            height: 0;
+        }
+
+        .tab {
+            padding: 9px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            cursor: pointer;
+            background: #2d2d2d;
+            color: #969696;
+            min-width: 120px;
+            border-right: 1px solid #252526;
+        }
+
+        .tab:hover {
+            color: #cccccc;
+        }
+
+        .tab.active {
+            background: #1e1e1e;
+            color: #ffffff;
+            border-top: 1px solid #007acc;
+        }
+
+        .tab-close {
+            margin-left: auto;
+            padding: 2px;
+            border-radius: 3px;
+            opacity: 0;
+        }
+
+        .tab:hover .tab-close {
+            opacity: 1;
+        }
+
+        .tab-close:hover {
+            background: #4c4c4c;
+        }
+
+        .editor-area {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+        }
+
+        .CodeMirror {
+            height: 100%;
+            font-size: 14px;
+            line-height: 1.5;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        }
+
+        /* AI Agent Panel */
+        .ai-agent-panel {
+            width: 400px;
+            background: #252526;
+            border-left: 1px solid #1e1e1e;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .ai-agent-panel.hidden {
+            display: none;
+        }
+
+        .ai-panel-header {
+            padding: 12px 16px;
+            background: #2d2d2d;
+            border-bottom: 1px solid #1e1e1e;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .ai-panel-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #cccccc;
+        }
+
+        .ai-chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .ai-message {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .ai-message-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .ai-message.user .ai-message-header {
+            color: #4fc3f7;
+        }
+
+        .ai-message.assistant .ai-message-header {
+            color: #ce9178;
+        }
+
+        .ai-message-content {
+            background: #1e1e1e;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #cccccc;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .ai-message-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .ai-action-btn {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ai-action-btn:hover {
+            background: #1177bb;
+        }
+
+        .ai-action-btn.secondary {
+            background: #3c3c3c;
+        }
+
+        .ai-action-btn.secondary:hover {
+            background: #4c4c4c;
+        }
+
+        .ai-input-area {
+            padding: 12px;
+            background: #2d2d2d;
+            border-top: 1px solid #1e1e1e;
+        }
+
+        .ai-input-container {
+            display: flex;
+            gap: 8px;
+            background: #3c3c3c;
+            border-radius: 4px;
+            padding: 8px;
+        }
+
+        .ai-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #cccccc;
+            font-size: 13px;
+            resize: none;
+            min-height: 60px;
+            max-height: 150px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .ai-send-btn {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 3px;
+            cursor: pointer;
+            align-self: flex-end;
+        }
+
+        .ai-send-btn:hover {
+            background: #1177bb;
+        }
+
+        .ai-send-btn:disabled {
+            background: #4c4c4c;
+            cursor: not-allowed;
+        }
+
+        /* Terminal - VSCode Style */
+        .terminal-container {
+            height: 200px;
+            background: #1e1e1e;
+            border-top: 1px solid #1e1e1e;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .terminal-header {
+            height: 35px;
+            background: #252526;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            gap: 12px;
+            font-size: 13px;
+            border-bottom: 1px solid #1e1e1e;
+        }
+
+        .terminal-tab {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+
+        .terminal-tab.active {
+            background: #1e1e1e;
+        }
+
+        .terminal-output {
+            flex: 1;
+            padding: 8px 12px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            color: #cccccc;
+        }
+
+        .terminal-output::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        .terminal-output::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        .terminal-output::-webkit-scrollbar-thumb {
+            background: #424242;
+            border-radius: 5px;
+        }
+
+        .terminal-input-line {
+            display: flex;
+            padding: 8px 12px;
+            border-top: 1px solid #2d2d2d;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+        }
+
+        .terminal-prompt {
+            color: #4ec9b0;
+            margin-right: 8px;
+        }
+
+        .terminal-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #cccccc;
+            font-family: inherit;
+            font-size: inherit;
+        }
+
+        /* Settings Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+
+        .modal {
+            background: #252526;
+            border: 1px solid #454545;
+            border-radius: 6px;
+            width: 600px;
+            max-width: 90vw;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+        }
+
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #1e1e1e;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #cccccc;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 13px;
+            color: #cccccc;
+        }
+
+        .form-group input {
+            width: 100%;
+            background: #3c3c3c;
+            border: 1px solid #3c3c3c;
+            padding: 8px 12px;
+            border-radius: 3px;
+            color: #cccccc;
+            font-size: 13px;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #007acc;
+        }
+
+        .modal-footer {
+            padding: 12px 20px;
+            border-top: 1px solid #1e1e1e;
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .btn {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .btn:hover {
+            background: #1177bb;
+        }
+
+        .btn-secondary {
+            background: #3c3c3c;
+        }
+
+        .btn-secondary:hover {
+            background: #4c4c4c;
+        }
+
+        .empty-editor {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #6a6a6a;
+            width: 100%;
+        }
+
+        .empty-editor svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+
+        .status-bar {
+            height: 22px;
+            background: #007acc;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 12px;
+            color: white;
+            justify-content: space-between;
+        }
+
+        .status-left, .status-right {
+            display: flex;
+            gap: 16px;
+        }
+
+        .ai-thinking {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px;
+            background: #2d2d2d;
+            border-radius: 6px;
+            margin: 8px 0;
+        }
+
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #4c4c4c;
+            border-top-color: #007acc;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #424242;
+            border-radius: 5px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4e4e4e;
+        }
+    </style>
+</head>
+<body>
+    <div class="ide-container">
+        <!-- Title Bar -->
+        <div class="title-bar">
+            <div class="title-bar-menu">
+                <div class="menu-item" onclick="showFileMenu()">File</div>
+                <div class="menu-item" onclick="showEditMenu()">Edit</div>
+                <div class="menu-item" onclick="showViewMenu()">View</div>
+                <div class="menu-item" onclick="openSettings()">Settings</div>
+            </div>
+            <div class="title-bar-center">Tabby IDE</div>
+            <div class="title-bar-right"></div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Activity Bar -->
+            <div class="activity-bar">
+                <div class="activity-item active" title="Explorer" onclick="toggleSidebar('explorer')">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                </div>
+                <div class="activity-item" title="AI Agent" onclick="toggleAiPanel()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2L15.5 8.5L22 9.3L17 14.2L18.2 21L12 17.8L5.8 21L7 14.2L2 9.3L8.5 8.5L12 2Z"/>
+                    </svg>
+                </div>
+                <div class="activity-item" title="Settings" onclick="openSettings()" style="margin-top: auto;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 1v6m0 6v6m5.5-13l-3 5.2m-3 5.2l-3 5.2M23 8.5l-5.2 3m-5.2 3l-5.2 3m13-15.5l-5.2 3m-5.2 3l-5.2 3M23 15.5l-5.2-3m-5.2-3l-5.2-3M8.5 1l3 5.2m3 5.2l3 5.2"/>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="sidebar" id="sidebar">
+                <div class="sidebar-header">
+                    Explorer
+                    <div class="sidebar-actions">
+                        <div class="icon-btn" onclick="createNewFile()" title="New File">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                            </svg>
+                        </div>
+                        <div class="icon-btn" onclick="openFolder()" title="Open Folder">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                            </svg>
+                        </div>
+                        <div class="icon-btn" onclick="refreshFileTree()" title="Refresh">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <div class="file-tree" id="fileTree"></div>
+            </div>
+
+            <!-- Editor Container -->
+            <div class="editor-container">
+                <div class="tabs-bar" id="tabsBar"></div>
+                <div class="editor-area">
+                    <div id="editorWrapper" style="flex: 1;">
+                        <div class="empty-editor">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                            </svg>
+                            <h3>No file open</h3>
+                            <p>Create a new file or open an existing one</p>
+                        </div>
+                    </div>
+
+                    <!-- AI Agent Panel -->
+                    <div class="ai-agent-panel hidden" id="aiAgentPanel">
+                        <div class="ai-panel-header">
+                            <div class="ai-panel-title">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2L15.5 8.5L22 9.3L17 14.2L18.2 21L12 17.8L5.8 21L7 14.2L2 9.3L8.5 8.5L12 2Z"/>
+                                </svg>
+                                AI Agent
+                            </div>
+                            <div class="icon-btn" onclick="toggleAiPanel()">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"/>
+                                    <line x1="6" y1="6" x2="18" y2="18"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="ai-chat-area" id="aiChatArea">
+                            <div class="ai-message assistant">
+                                <div class="ai-message-header">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 2L15.5 8.5L22 9.3L17 14.2L18.2 21L12 17.8L5.8 21L7 14.2L2 9.3L8.5 8.5L12 2Z"/>
+                                    </svg>
+                                    AI Agent
+                                </div>
+                                <div class="ai-message-content">Hello! I'm your AI coding assistant powered by Tabby. I can help you:
+
+• Create new files
+• Edit existing code
+• View and analyze files
+• Generate code completions
+• Refactor code
+• Debug issues
+
+What would you like me to help you with?</div>
+                            </div>
+                        </div>
+                        <div class="ai-input-area">
+                            <div class="ai-input-container">
+                                <textarea 
+                                    class="ai-input" 
+                                    id="aiInput" 
+                                    placeholder="Ask AI to create, edit, or view files..."
+                                    onkeydown="handleAiInputKeydown(event)"
+                                ></textarea>
+                                <button class="ai-send-btn" onclick="sendAiMessage()" id="aiSendBtn">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="22" y1="2" x2="11" y2="13"/>
+                                        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Terminal -->
+                <div class="terminal-container">
+                    <div class="terminal-header">
+                        <div class="terminal-tab active">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="4 17 10 11 4 5"/>
+                                <line x1="12" y1="19" x2="20" y2="19"/>
+                            </svg>
+                            Terminal
+                        </div>
+                        <div style="margin-left: auto; display: flex; gap: 4px;">
+                            <div class="icon-btn" onclick="clearTerminal()" title="Clear">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="terminal-output" id="terminalOutput">
+                        <div style="color: #4fc3f7;">Tabby IDE Terminal v1.0.0</div>
+                        <div>Type 'help' for available commands</div>
+                        <div></div>
+                    </div>
+                    <div class="terminal-input-line">
+                        <span class="terminal-prompt">$</span>
+                        <input type="text" class="terminal-input" id="terminalInput">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-left">
+                <span id="statusBranch">main</span>
+                <span id="statusFile">No file selected</span>
+            </div>
+            <div class="status-right">
+                <span id="statusLanguage">Plain Text</span>
+                <span id="statusEncoding">UTF-8</span>
+                <span id="statusPosition">Ln 1, Col 1</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settingsModal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">Tabby AI Settings</div>
+                <div class="icon-btn" onclick="closeSettings()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Tabby Server URL</label>
+                    <input type="text" id="tabbyUrl" value="http://localhost:8080" placeholder="http://localhost:8080">
+                </div>
+                <div class="form-group">
+                    <label>API Key (Optional)</label>
+                    <input type="password" id="tabbyApiKey" placeholder="Enter your API key">
+                </div>
+                <div class="form-group">
+                    <label>AI Model</label>
+                    <input type="text" id="tabbyModel" value="StarCoder" placeholder="Model name">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
+                <button class="btn" onclick="saveSettings()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <input type="file" id="folderInput" webkitdirectory directory multiple>
+    <input type="file" id="fileInput">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/markdown/markdown.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchbrackets.min.js"></script>
+
+    <script>
+        // IDE State
+        let files = new Map();
+        let openTabs = [];
+        let activeTabId = null;
+        let editor = null;
+        let aiMessages = [];
+        let currentAiTask = null;
+
+        // Initialize
+        function init() {
+            addToTerminal('Welcome to Tabby IDE', '#4fc3f7');
+            addToTerminal('AI Agent ready. Click the star icon to open AI panel.', '#ce9178');
+        }
+
+        // CodeMirror Editor
+        function initEditor() {
+            const editorWrapper = document.getElementById('editorWrapper');
+            editorWrapper.innerHTML = '';
+            
+            editor = CodeMirror(editorWrapper, {
+                lineNumbers: true,
+                theme: 'monokai',
+                mode: 'javascript',
+                autoCloseBrackets: true,
+                matchBrackets: true,
+                indentUnit: 2,
+                tabSize: 2,
+                lineWrapping: false,
+                extraKeys: {
+                    'Ctrl-S': saveCurrentFile,
+                    'Cmd-S': saveCurrentFile
+                }
+            });
+
+            editor.on('change', () => {
+                if (activeTabId) {
+                    const file = files.get(activeTabId);
+                    if (file) {
+                        file.content = editor.getValue();
+                        file.modified = true;
+                        updateTabDisplay();
+                        updateStatusBar();
+                    }
+                }
+            });
+
+            editor.on('cursorActivity', () => {
+                updateStatusBar();
+            });
+        }
+
+        // File System Operations
+        async function openFolder() {
+            const input = document.getElementById('folderInput');
+            input.click();
+            
+            input.onchange = async (e) => {
+                const fileList = Array.from(e.target.files);
+                if (fileList.length === 0) return;
+
+                files.clear();
+                openTabs = [];
+                activeTabId = null;
+
+                const tree = buildFileTree(fileList);
+                renderFileTree(tree);
+                
+                addToTerminal(`Opened folder with ${fileList.length} files`, '#4ec9b0');
+            };
+        }
+
+        function buildFileTree(fileList) {
+            const tree = { name: 'root', type: 'folder', children: [], path: '' };
+            
+            fileList.forEach(file => {
+                const path = file.webkitRelativePath || file.name;
+                const parts = path.split('/');
+                let current = tree;
+                
+                parts.forEach((part, index) => {
+                    if (index === parts.length - 1) {
+                        const fileId = generateId();
+                        files.set(fileId, {
+                            id: fileId,
+                            name: part,
+                            path: path,
+                            content: '',
+                            modified: false,
+                            file: file
+                        });
+                        current.children.push({
+                            name: part,
+                            type: 'file',
+                            id: fileId,
+                            path: path
+                        });
+                    } else {
+                        let folder = current.children.find(c => c.name === part && c.type === 'folder');
+                        if (!folder) {
+                            folder = { name: part, type: 'folder', children: [], expanded: false };
+                            current.children.push(folder);
+                        }
+                        current = folder;
+                    }
+                });
+            });
+            
+            tree.expanded = true;
+            return tree;
+        }
+
+        function renderFileTree(tree, container = document.getElementById('fileTree'), level = 0) {
+            if (level === 0) container.innerHTML = '';
+            
+            tree.children.sort((a, b) => {
+                if (a.type === b.type) return a.name.localeCompare(b.name);
+                return a.type === 'folder' ? -1 : 1;
+            });
+            
+            tree.children.forEach(item => {
+                if (item.type === 'folder') {
+                    const folderDiv = document.createElement('div');
+                    folderDiv.className = `folder-item ${item.expanded ? 'expanded' : ''}`;
+                    folderDiv.style.paddingLeft = `${level * 16 + 8}px`;
+                    folderDiv.innerHTML = `
+                        <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="9 18 15 12 9 6"/>
+                        </svg>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        ${item.name}
+                    `;
+                    folderDiv.onclick = (e) => {
+                        e.stopPropagation();
+                        item.expanded = !item.expanded;
+                        renderFileTree(tree);
+                    };
+                    container.appendChild(folderDiv);
+                    
+                    if (item.expanded) {
+                        renderFileTree(item, container, level + 1);
+                    }
+                } else {
+                    const fileDiv = document.createElement('div');
+                    fileDiv.className = `file-item ${activeTabId === item.id ? 'active' : ''}`;
+                    fileDiv.style.paddingLeft = `${level * 16 + 30}px`;
+                    fileDiv.innerHTML = `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                        ${item.name}
+                    `;
+                    fileDiv.onclick = () => openFile(item.id);
+                    container.appendChild(fileDiv);
+                }
+            });
+        }
+
+        async function openFile(fileId) {
+            const file = files.get(fileId);
+            if (!file) return;
+
+            if (!openTabs.includes(fileId)) {
+                openTabs.push(fileId);
+            }
+            
+            activeTabId = fileId;
+
+            if (!file.content && file.file) {
+                try {
+                    file.content = await file.file.text();
+                } catch (err) {
+                    addToTerminal(`Error reading file: ${err.message}`, '#f48771');
+                }
+            }
+
+            if (editor) {
+                editor.setValue(file.content);
+                const mode = getFileMode(file.name);
+                editor.setOption('mode', mode);
+            } else {
+                initEditor();
+                editor.setValue(file.content);
+            }
+
+            updateTabDisplay();
+            updateStatusBar();
+            renderFileTree(buildFileTreeFromFiles());
+            addToTerminal(`Opened: ${file.name}`, '#4ec9b0');
+        }
+
+        function buildFileTreeFromFiles() {
+            const tree = { name: 'root', type: 'folder', children: [], expanded: true };
+            
+            files.forEach(file => {
+                const parts = file.path.split('/');
+                let current = tree;
+                
+                parts.forEach((part, index) => {
+                    if (index === parts.length - 1) {
+                        current.children.push({
+                            name: part,
+                            type: 'file',
+                            id: file.id,
+                            path: file.path
+                        });
+                    } else {
+                        let folder = current.children.find(c => c.name === part && c.type === 'folder');
+                        if (!folder) {
+                            folder = { name: part, type: 'folder', children: [], expanded: true };
+                            current.children.push(folder);
+                        }
+                        current = folder;
+                    }
+                });
+            });
+            
+            return tree;
+        }
+
+        function createNewFile() {
+            const fileId = generateId();
+            const fileName = `untitled-${Date.now().toString().slice(-4)}.js`;
+            
+            files.set(fileId, {
+                id: fileId,
+                name: fileName,
+                path: fileName,
+                content: '',
+                modified: false,
+                file: null
+            });
+            
+            openFile(fileId);
+            renderFileTree(buildFileTreeFromFiles());
+            addToTerminal(`Created: ${fileName}`, '#4ec9b0');
+        }
+
+        async function saveCurrentFile() {
+            if (!activeTabId) return;
+            
+            const file = files.get(activeTabId);
+            if (!file) return;
+
+            try {
+                const blob = new Blob([file.content], { type: 'text/plain' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = file.name;
+                a.click();
+                
+                file.modified = false;
+                updateTabDisplay();
+                addToTerminal(`Saved: ${file.name}`, '#4ec9b0');
+            } catch (err) {
+                addToTerminal(`Error saving: ${err.message}`, '#f48771');
+            }
+        }
+
+        function updateTabDisplay() {
+            const tabsBar = document.getElementById('tabsBar');
+            tabsBar.innerHTML = '';
+            
+            openTabs.forEach(tabId => {
+                const file = files.get(tabId);
+                if (!file) return;
+                
+                const tab = document.createElement('div');
+                tab.className = `tab ${activeTabId === tabId ? 'active' : ''}`;
+                tab.innerHTML = `
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    ${file.name}${file.modified ? ' •' : ''}
+                    <span class="tab-close">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </span>
+                `;
+                
+                tab.onclick = (e) => {
+                    if (!e.target.closest('.tab-close')) {
+                        openFile(tabId);
+                    }
+                };
+                
+                tab.querySelector('.tab-close').onclick = (e) => {
+                    e.stopPropagation();
+                    closeTab(tabId);
+                };
+                
+                tabsBar.appendChild(tab);
+            });
+        }
+
+        function closeTab(tabId) {
+            const index = openTabs.indexOf(tabId);
+            if (index > -1) {
+                openTabs.splice(index, 1);
+            }
+            
+            if (activeTabId === tabId) {
+                if (openTabs.length > 0) {
+                    const newIndex = Math.max(0, index - 1);
+                    openFile(openTabs[newIndex]);
+                } else {
+                    activeTabId = null;
+                    if (editor) {
+                        document.getElementById('editorWrapper').innerHTML = `
+                            <div class="empty-editor">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                <h3>No file open</h3>
+                                <p>Create a new file or open an existing one</p>
+                            </div>
+                        `;
+                        editor = null;
+                    }
+                    updateStatusBar();
+                }
+            }
+            
+            updateTabDisplay();
+        }
+
+        // AI Agent Functions
+        function toggleAiPanel() {
+            const panel = document.getElementById('aiAgentPanel');
+            panel.classList.toggle('hidden');
+            
+            const activityItems = document.querySelectorAll('.activity-item');
+            activityItems.forEach(item => {
+                if (item.title === 'AI Agent') {
+                    item.classList.toggle('active');
+                }
+            });
+        }
+
+        async function sendAiMessage() {
+            const input = document.getElementById('aiInput');
+            const message = input.value.trim();
+            if (!message) return;
+
+            input.value = '';
+            addAiMessage('user', message);
+
+            const tabbyUrl = document.getElementById('tabbyUrl').value;
+            const tabbyApiKey = document.getElementById('tabbyApiKey').value;
+
+            if (!tabbyUrl) {
+                addAiMessage('assistant', 'Please configure Tabby URL in Settings first.');
+                return;
+            }
+
+            showAiThinking();
+
+            try {
+                await processAiCommand(message, tabbyUrl, tabbyApiKey);
+            } catch (error) {
+                addAiMessage('assistant', `Error: ${error.message}`);
+                addToTerminal(`AI Error: ${error.message}`, '#f48771');
+            } finally {
+                hideAiThinking();
+            }
+        }
+
+        async function processAiCommand(command, tabbyUrl, tabbyApiKey) {
+            const lowerCommand = command.toLowerCase();
+
+            // Parse command intent
+            if (lowerCommand.includes('create') && lowerCommand.includes('file')) {
+                await handleCreateFile(command, tabbyUrl, tabbyApiKey);
+            } else if (lowerCommand.includes('edit') || lowerCommand.includes('modify') || lowerCommand.includes('change')) {
+                await handleEditFile(command, tabbyUrl, tabbyApiKey);
+            } else if (lowerCommand.includes('view') || lowerCommand.includes('show') || lowerCommand.includes('open')) {
+                await handleViewFile(command);
+            } else if (lowerCommand.includes('delete') || lowerCommand.includes('remove')) {
+                await handleDeleteFile(command);
+            } else {
+                // General code completion/help
+                await handleGeneralQuery(command, tabbyUrl, tabbyApiKey);
+            }
+        }
+
+        async function handleCreateFile(command, tabbyUrl, tabbyApiKey) {
+            // Extract filename from command
+            const match = command.match(/create.*?(?:file|named?)\s+['""]?([a-zA-Z0-9_\-\.]+)['""]?/i);
+            const fileName = match ? match[1] : `generated-${Date.now()}.js`;
+
+            // Get code from AI
+            const prompt = `Generate code for: ${command}. Only output the code, no explanations.`;
+            const code = await getAiCompletion(prompt, tabbyUrl, tabbyApiKey);
+
+            // Create file
+            const fileId = generateId();
+            files.set(fileId, {
+                id: fileId,
+                name: fileName,
+                path: fileName,
+                content: code,
+                modified: true,
+                file: null
+            });
+
+            openFile(fileId);
+            renderFileTree(buildFileTreeFromFiles());
+
+            addAiMessage('assistant', `Created file: ${fileName}`);
+            addToTerminal(`AI created: ${fileName}`, '#ce9178');
+        }
+
+        async function handleEditFile(command, tabbyUrl, tabbyApiKey) {
+            if (!activeTabId) {
+                addAiMessage('assistant', 'Please open a file first to edit it.');
+                return;
+            }
+
+            const file = files.get(activeTabId);
+            const currentCode = file.content;
+
+            const prompt = `Current code:\n${currentCode}\n\nTask: ${command}\n\nProvide the complete modified code:`;
+            const newCode = await getAiCompletion(prompt, tabbyUrl, tabbyApiKey);
+
+            file.content = newCode;
+            file.modified = true;
+            
+            if (editor) {
+                editor.setValue(newCode);
+            }
+
+            updateTabDisplay();
+            addAiMessage('assistant', `Modified ${file.name}`);
+            addToTerminal(`AI edited: ${file.name}`, '#ce9178');
+        }
+
+        async function handleViewFile(command) {
+            // Extract filename
+            const match = command.match(/(?:view|show|open)\s+['""]?([a-zA-Z0-9_\-\.\/]+)['""]?/i);
+            
+            if (!match) {
+                addAiMessage('assistant', 'Please specify a filename to view.');
+                return;
+            }
+
+            const fileName = match[1];
+            const file = Array.from(files.values()).find(f => 
+                f.name === fileName || f.path.includes(fileName)
+            );
+
+            if (file) {
+                openFile(file.id);
+                addAiMessage('assistant', `Opened ${file.name} for viewing.`);
+            } else {
+                addAiMessage('assistant', `File not found: ${fileName}`);
+            }
+        }
+
+        async function handleDeleteFile(command) {
+            const match = command.match(/(?:delete|remove)\s+['""]?([a-zA-Z0-9_\-\.\/]+)['""]?/i);
+            
+            if (!match) {
+                addAiMessage('assistant', 'Please specify a filename to delete.');
+                return;
+            }
+
+            const fileName = match[1];
+            const file = Array.from(files.values()).find(f => 
+                f.name === fileName || f.path.includes(fileName)
+            );
+
+            if (file) {
+                files.delete(file.id);
+                closeTab(file.id);
+                renderFileTree(buildFileTreeFromFiles());
+                addAiMessage('assistant', `Deleted ${file.name}`);
+                addToTerminal(`AI deleted: ${file.name}`, '#ce9178');
+            } else {
+                addAiMessage('assistant', `File not found: ${fileName}`);
+            }
+        }
+
+        async function handleGeneralQuery(command, tabbyUrl, tabbyApiKey) {
+            const context = activeTabId ? files.get(activeTabId).content : '';
+            const prompt = context ? `Context:\n${context}\n\nQuery: ${command}` : command;
+            
+            const response = await getAiCompletion(prompt, tabbyUrl, tabbyApiKey);
+            addAiMessage('assistant', response);
+        }
+
+        async function getAiCompletion(prompt, tabbyUrl, tabbyApiKey) {
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            if (tabbyApiKey) {
+                headers['Authorization'] = `Bearer ${tabbyApiKey}`;
+            }
+
+            const response = await fetch(`${tabbyUrl}/v1/completions`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({
+                    language: 'javascript',
+                    segments: {
+                        prefix: prompt,
+                        suffix: ''
+                    }
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            if (data.choices && data.choices[0]?.text) {
+                return data.choices[0].text;
+            }
+            
+            throw new Error('No response from AI');
+        }
+
+        function addAiMessage(role, content) {
+            const chatArea = document.getElementById('aiChatArea');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `ai-message ${role}`;
+            
+            const icon = role === 'user' ? 
+                `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>` :
+                `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2L15.5 8.5L22 9.3L17 14.2L18.2 21L12 17.8L5.8 21L7 14.2L2 9.3L8.5 8.5L12 2Z"/>
+                </svg>`;
+            
+            messageDiv.innerHTML = `
+                <div class="ai-message-header">
+                    ${icon}
+                    ${role === 'user' ? 'You' : 'AI Agent'}
+                </div>
+                <div class="ai-message-content">${escapeHtml(content)}</div>
+            `;
+            
+            chatArea.appendChild(messageDiv);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function showAiThinking() {
+            const chatArea = document.getElementById('aiChatArea');
+            const thinkingDiv = document.createElement('div');
+            thinkingDiv.className = 'ai-thinking';
+            thinkingDiv.id = 'aiThinking';
+            thinkingDiv.innerHTML = `
+                <div class="spinner"></div>
+                <span>AI is thinking...</span>
+            `;
+            chatArea.appendChild(thinkingDiv);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function hideAiThinking() {
+            const thinking = document.getElementById('aiThinking');
+            if (thinking) thinking.remove();
+        }
+
+        function handleAiInputKeydown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendAiMessage();
+            }
+        }
+
+        // Terminal Functions
+        function addToTerminal(text, color = '#cccccc') {
+            const output = document.getElementById('terminalOutput');
+            const line = document.createElement('div');
+            line.textContent = text;
+            line.style.color = color;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function clearTerminal() {
+            document.getElementById('terminalOutput').innerHTML = `
+                <div style="color: #4fc3f7;">Tabby IDE Terminal v1.0.0</div>
+                <div>Type 'help' for available commands</div>
+                <div></div>
+            `;
+        }
+
+        document.getElementById('terminalInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const input = e.target.value.trim();
+                if (!input) return;
+
+                addToTerminal(`$ ${input}`, '#4ec9b0');
+
+                if (input === 'clear') {
+                    clearTerminal();
+                } else if (input === 'help') {
+                    addToTerminal('Available commands:', '#cccccc');
+                    addToTerminal('  clear    - Clear terminal', '#cccccc');
+                    addToTerminal('  help     - Show this help', '#cccccc');
+                    addToTerminal('  ls       - List files', '#cccccc');
+                    addToTerminal('  save     - Save current file', '#cccccc');
+                } else if (input === 'ls') {
+                    files.forEach(file => {
+                        addToTerminal(`  ${file.name}`, '#cccccc');
+                    });
+                } else if (input === 'save') {
+                    saveCurrentFile();
+                } else {
+                    addToTerminal(`Command not found: ${input}`, '#f48771');
+                }
+
+                e.target.value = '';
+            }
+        });
+
+        // Status Bar
+        function updateStatusBar() {
+            document.getElementById('statusFile').textContent = activeTabId ? 
+                files.get(activeTabId).name : 'No file selected';
+            
+            if (editor && activeTabId) {
+                const file = files.get(activeTabId);
+                const cursor = editor.getCursor();
+                const mode = getFileMode(file.name);
+                
+                document.getElementById('statusLanguage').textContent = mode || 'Plain Text';
+                document.getElementById('statusPosition').textContent = `Ln ${cursor.line + 1}, Col ${cursor.ch + 1}`;
+            } else {
+                document.getElementById('statusLanguage').textContent = 'Plain Text';
+                document.getElementById('statusPosition').textContent = 'Ln 1, Col 1';
+            }
+        }
+
+        // Settings
+        function openSettings() {
+            document.getElementById('settingsModal').style.display = 'flex';
+        }
+
+        function closeSettings() {
+            document.getElementById('settingsModal').style.display = 'none';
+        }
+
+        function saveSettings() {
+            addToTerminal('Settings saved', '#4ec9b0');
+            closeSettings();
+        }
+
+        // UI Functions
+        function toggleSidebar(type) {
+            // In full version, would switch between different sidebar views
+        }
+
+        function showFileMenu() {
+            // In full version, would show dropdown menu
+        }
+
+        function showEditMenu() {
+            // In full version, would show dropdown menu
+        }
+
+        function showViewMenu() {
+            // In full version, would show dropdown menu
+        }
+
+        function refreshFileTree() {
+            if (files.size > 0) {
+                renderFileTree(buildFileTreeFromFiles());
+                addToTerminal('File tree refreshed', '#4ec9b0');
+            }
+        }
+
+        // Utility Functions
+        function getFileMode(fileName) {
+            const ext = fileName.split('.').pop().toLowerCase();
+            const modeMap = {
+                'js': 'javascript',
+                'jsx': 'javascript',
+                'ts': 'javascript',
+                'tsx': 'javascript',
+                'json': 'javascript',
+                'css': 'css',
+                'scss': 'css',
+                'html': 'htmlmixed',
+                'py': 'python',
+                'xml': 'xml',
+                'md': 'markdown'
+            };
+            return modeMap[ext] || 'text';
+        }
+
+        function generateId() {
+            return Date.now().toString(36) + Math.random().toString(36).substr(2);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Keyboard Shortcuts
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveCurrentFile();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+                e.preventDefault();
+                createNewFile();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+                e.preventDefault();
+                openFolder();
+            }
+        });
+
+        // Initialize on load
+        window.onload = init;
+    </script>
+</body>
+</html>

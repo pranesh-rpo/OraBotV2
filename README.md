@@ -1,4 +1,4 @@
-# Ora Ads Bot
+# Ora Ads Bot v.0.1.2
 
 Ora Ads Bot is an Aiogram + Telethon based system for broadcasting messages to Telegram groups from linked accounts. It supports safe-rate broadcasting, account management, scheduling in IST, logging, and admin monitoring.
 

@@ -62,11 +62,64 @@ def delete_confirmation_keyboard(account_id: int) -> InlineKeyboardMarkup:
         ]
     ])
 
-def back_button(callback_data: str = "main_menu") -> InlineKeyboardMarkup:
-    """Simple back button"""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Back", callback_data=callback_data)]
+def otp_keypad() -> InlineKeyboardMarkup:
+    """Create a numeric keypad for OTP input"""
+    buttons = []
+    
+    # Number pad layout (1-9, 0)
+    for i in range(1, 10, 3):
+        row = []
+        for j in range(3):
+            if i + j <= 9:
+                row.append(InlineKeyboardButton(
+                    text=str(i + j), 
+                    callback_data=f"otp_{i + j}"
+                ))
+        buttons.append(row)
+    
+    # Last row with 0 and action buttons
+    buttons.append([
+        InlineKeyboardButton(text="0", callback_data="otp_0"),
+        InlineKeyboardButton(text="⌫", callback_data="otp_backspace"),
+        InlineKeyboardButton(text="✅", callback_data="otp_submit")
     ])
+    
+    # Clear and cancel buttons
+    buttons.append([
+        InlineKeyboardButton(text="🧹 Clear", callback_data="otp_clear"),
+        InlineKeyboardButton(text="❌ Cancel", callback_data="otp_cancel")
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def schedule_type_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for selecting schedule type"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⏰ Normal Schedule", callback_data="schedule_type_normal"),
+            InlineKeyboardButton(text="⭐ Special Schedule", callback_data="schedule_type_special")
+        ]
+    ])
+
+def back_button(destination: str) -> InlineKeyboardMarkup:
+    """Simple back button"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Back", callback_data=destination)]
+        ]
+    )
+
+def join_groups_method_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for choosing join groups method"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📝 Send Links Manually", callback_data="join_method_manual"),
+                InlineKeyboardButton(text="📄 Upload Text File", callback_data="join_method_file")
+            ],
+            [InlineKeyboardButton(text="⬅️ Back", callback_data="manage_accounts")]
+        ]
+    )
 
 def verification_keyboard(channel_link: str) -> InlineKeyboardMarkup:
     """Verification keyboard"""

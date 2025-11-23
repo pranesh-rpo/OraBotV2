@@ -19,15 +19,44 @@ class BroadcastWorker:
         self.running_tasks = {}
         self.ist = timezone(timedelta(hours=5, minutes=30))
     
+    async def sync_broadcast_status(self):
+        """Sync broadcast status on startup - clean up stale statuses"""
+        try:
+            accounts = await self.db.get_all_broadcasting_accounts()
+            for account in accounts:
+                account_id = account['id']
+                # Reset stale broadcast status
+                await self.db.update_account_broadcast_status(account_id, False)
+                await self.db.add_log(
+                    account_id,
+                    "broadcast",
+                    "Cleaned up stale broadcast status on startup",
+                    "info"
+                )
+        except Exception as e:
+            # Log error but don't fail startup
+            print(f"Error syncing broadcast status: {e}")
+    
     async def start_broadcast(self, account_id: int):
         """Start broadcasting for an account"""
+        # Check if already running in memory
         if account_id in self.running_tasks:
             return False, "Broadcast already running"
         
-        # Get account details
+        # Check database status and clean up if needed
         account = await self.db.get_account(account_id)
         if not account:
             return False, "Account not found"
+        
+        # If database shows broadcasting but no task is running, reset the status
+        if account['is_broadcasting']:
+            await self.db.update_account_broadcast_status(account_id, False)
+            await self.db.add_log(
+                account_id,
+                "broadcast",
+                "Cleaned up stale broadcast status",
+                "info"
+            )
         
         # Get message
         message = await self.db.get_account_message(account_id)
@@ -85,15 +114,25 @@ class BroadcastWorker:
     
     async def stop_broadcast(self, account_id: int):
         """Stop broadcasting for an account"""
-        if account_id not in self.running_tasks:
-            return False, "Broadcast not running"
+        # Check if running in memory
+        task_running = account_id in self.running_tasks
         
-        # Cancel task
-        task = self.running_tasks.pop(account_id)
-        task.cancel()
+        if task_running:
+            # Cancel task
+            task = self.running_tasks.pop(account_id)
+            task.cancel()
+        else:
+            # If no task but database shows broadcasting, just update database
+            account = await self.db.get_account(account_id)
+            if not account:
+                return False, "Account not found"
+            
+            if not account['is_broadcasting']:
+                return False, "Broadcast not running"
         
-        # Update status
+        # Always update database status and clear manual override for natural stops
         await self.db.update_account_broadcast_status(account_id, False)
+        await self.db.set_manual_override(account_id, False)  # Clear manual override for natural stops
         
         account = await self.db.get_account(account_id)
         await external_logger.send_log(
@@ -513,6 +552,7 @@ class BroadcastWorker:
             )
         finally:
             await self.db.update_account_broadcast_status(account_id, False)
+            await self.db.set_manual_override(account_id, False)  # Clear manual override for natural completion
             self.running_tasks.pop(account_id, None)
 
 # Global instance

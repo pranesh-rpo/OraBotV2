@@ -7,7 +7,7 @@ from datetime import datetime
 from app.database.operations import DatabaseOperations
 from app.client.broadcast_worker import broadcast_worker
 from app.bot.keyboards import (
-    cancel_keyboard, back_button, account_dashboard_keyboard
+    cancel_keyboard, back_button, account_dashboard_keyboard, schedule_type_keyboard
 )
 
 router = Router()
@@ -16,6 +16,7 @@ db = DatabaseOperations()
 
 class ScheduleSetup(StatesGroup):
     message = State()
+    schedule_type = State()
     start_time = State()
     end_time = State()
 
@@ -26,12 +27,43 @@ async def start_schedule_setup(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(
         "🕐 <b>Schedule Broadcast</b>\n\n"
-        "Send the broadcast message you want to post to your groups.\n\n"
-        "<i>After the message, I will ask for start and end time (IST).</i>",
-        reply_markup=cancel_keyboard(),
+        "Choose the type of schedule you want to set:\n\n"
+        "⏰ <b>Normal Schedule:</b> Time-based windows (e.g., 9 AM - 5 PM)\n"
+        "⭐ <b>Special Schedule:</b> Advanced patterns (specific days, dates, hourly patterns)",
+        reply_markup=schedule_type_keyboard(),
         parse_mode="HTML"
     )
     await state.update_data(account_id=account_id)
+    await state.set_state(ScheduleSetup.schedule_type)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("schedule_type_"))
+async def handle_schedule_type(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    account_id = data["account_id"]
+    
+    schedule_type = callback.data.split("_")[2]
+    
+    await state.update_data(schedule_type=schedule_type)
+    
+    if schedule_type == "normal":
+        await callback.message.edit_text(
+            "⏰ <b>Normal Schedule Setup</b>\n\n"
+            "Send the broadcast message you want to post to your groups.\n\n"
+            "<i>After the message, I will ask for start and end time (IST).</i>",
+            reply_markup=cancel_keyboard(),
+            parse_mode="HTML"
+        )
+    else:  # special
+        await callback.message.edit_text(
+            "⭐ <b>Special Schedule Setup</b>\n\n"
+            "Send the broadcast message you want to post to your groups.\n\n"
+            "<i>After the message, I will ask for advanced schedule options.</i>",
+            reply_markup=cancel_keyboard(),
+            parse_mode="HTML"
+        )
+    
     await state.set_state(ScheduleSetup.message)
     await callback.answer()
 
@@ -90,6 +122,7 @@ async def finalize_schedule(message: Message, state: FSMContext):
     message_text = data["message_text"]
     start_time = data["start_time"]
     end_time = (message.text or "").strip()
+    schedule_type = data.get("schedule_type", "normal")
 
     try:
         datetime.strptime(end_time, "%H:%M")
@@ -102,8 +135,8 @@ async def finalize_schedule(message: Message, state: FSMContext):
         return
 
     await db.set_account_message(account_id, message_text)
-    await db.set_schedule(account_id, start_time, end_time)
-    await db.add_log(account_id, "settings", f"Schedule set with message: {start_time} - {end_time}", "success")
+    await db.set_schedule(account_id, start_time, end_time, schedule_type)
+    await db.add_log(account_id, "settings", f"{schedule_type.title()} schedule set: {start_time} - {end_time}", "success")
 
     account = await db.get_account(account_id)
     from datetime import timezone, timedelta
@@ -121,11 +154,11 @@ async def finalize_schedule(message: Message, state: FSMContext):
         status = "success" if ok else "error"
         await db.add_log(account_id, "broadcast", f"Auto-start after scheduling: {info}", status)
     await message.answer(
-        "✅ <b>Schedule Saved</b>\n\n"
+        f"✅ <b>{schedule_type.title()} Schedule Saved</b>\n\n"
         f"<b>Message:</b> {message_text[:120]}{'…' if len(message_text)>120 else ''}\n"
         f"<b>Start:</b> {start_time} IST\n"
         f"<b>End:</b> {end_time} IST\n\n"
-        "Broadcast will auto start/stop based on this schedule.",
+        f"Broadcast will auto start/stop based on this schedule.",
         reply_markup=account_dashboard_keyboard(account_id, bool(account and account.get("is_broadcasting"))),
         parse_mode="HTML"
     )
