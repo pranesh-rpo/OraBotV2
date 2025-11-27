@@ -38,29 +38,6 @@ async def cmd_start(message: Message, state: FSMContext):
     user_task = db.add_user(user.id, user.username, user.first_name)
     verify_task = check_user_verification(message.bot, user.id)
     
-    # Quick cleanup - only delete last 10 messages to reduce delay
-    cleanup_task = None
-    try:
-        if message.chat.type == "private":
-            chat_id = message.chat.id
-            start_id = message.message_id
-            ids = list(range(max(1, start_id - 10), start_id))  # Reduced from 200 to 10
-            batch = []
-            for mid in ids:
-                async def del_one(m=mid):
-                    try:
-                        await message.bot.delete_message(chat_id, m)
-                    except Exception:
-                        return
-                batch.append(del_one())
-                if len(batch) >= 5:  # Reduced batch size from 20 to 5
-                    await asyncio.gather(*batch, return_exceptions=True)
-                    batch = []
-            if batch:
-                await asyncio.gather(*batch, return_exceptions=True)
-    except Exception:
-        pass
-    
     # Wait for user data and verification to complete
     await user_task
     is_verified = await verify_task
@@ -91,12 +68,18 @@ async def callback_check_verification(callback: CallbackQuery):
             reply_markup=main_menu_keyboard(),
             parse_mode="HTML"
         )
-        await callback.answer("✅ Verification successful!")
+        try:
+            await callback.answer("✅ Verification successful!")
+        except Exception:
+            pass  # Ignore timeout errors
     else:
-        await callback.answer(
-            "❌ Please join the channel first!",
-            show_alert=True
-        )
+        try:
+            await callback.answer(
+                "❌ Please join the channel first!",
+                show_alert=True
+            )
+        except Exception:
+            pass  # Ignore timeout errors
 
 @router.callback_query(F.data == "main_menu")
 async def callback_main_menu(callback: CallbackQuery, state: FSMContext):
@@ -112,7 +95,10 @@ async def callback_main_menu(callback: CallbackQuery, state: FSMContext):
             reply_markup=verification_keyboard(Config.VERIFICATION_CHANNEL),
             parse_mode="HTML"
         )
-        await callback.answer("Please verify first")
+        try:
+            await callback.answer("Please verify first")
+        except Exception:
+            pass  # Ignore timeout errors
         return
     
     await callback.message.edit_text(
@@ -120,7 +106,10 @@ async def callback_main_menu(callback: CallbackQuery, state: FSMContext):
         reply_markup=main_menu_keyboard(),
         parse_mode="HTML"
     )
-    await callback.answer()
+    try:
+        await callback.answer()
+    except Exception:
+        pass  # Ignore timeout errors
 
 @router.callback_query(F.data == "about")
 async def callback_about(callback: CallbackQuery):
@@ -130,7 +119,10 @@ async def callback_about(callback: CallbackQuery):
         reply_markup=back_button("main_menu"),
         parse_mode="HTML"
     )
-    await callback.answer()
+    try:
+        await callback.answer()
+    except Exception:
+        pass  # Ignore timeout errors
 
 @router.callback_query(F.data == "privacy")
 async def callback_privacy(callback: CallbackQuery):
@@ -140,4 +132,37 @@ async def callback_privacy(callback: CallbackQuery):
         reply_markup=back_button("main_menu"),
         parse_mode="HTML"
     )
-    await callback.answer()
+    try:
+        await callback.answer()
+    except Exception:
+        pass  # Ignore timeout errors
+
+@router.callback_query(F.data == "unknown_buck")
+async def callback_unknown_buck(callback: CallbackQuery):
+    """Show Unknown Buck popup message"""
+    unknown_buck_message = """
+🌌 **The Unknown Buck** 🌌
+
+A currency so secret even the universe hasn't figured it out yet. 
+
+No one knows what it will become — cash, crypto, power, or pure magic. But when its true form is revealed, only the early collectors will rule the future.
+
+Grab it now before the world wakes up. ⚡💰🌌
+
+*This is a mysterious concept currency - collect now, discover later!*
+    """
+    
+    try:
+        await callback.answer(
+            text="🌌 The Unknown Buck - A mysterious future awaits!",
+            show_alert=True
+        )
+    except Exception:
+        pass  # Ignore timeout errors
+    
+    # Also send as message with back button for better formatting
+    await callback.message.answer(
+        text=unknown_buck_message,
+        parse_mode="Markdown",
+        reply_markup=back_button("main_menu")
+    )

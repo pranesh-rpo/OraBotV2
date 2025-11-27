@@ -169,14 +169,14 @@ async def main():
         # Short delay to ensure previous sessions are cleared
         await asyncio.sleep(2)
         
-        # Start polling with optimized settings
+        # Start polling with optimized settings for low latency
         logger.info("🎯 Bot is polling...")
         await dp.start_polling(
             bot_instance, 
             allowed_updates=dp.resolve_used_update_types(),
             drop_pending_updates=True,  # Drop pending updates on start
             handle_as_tasks=True,  # Handle updates concurrently
-            polling_timeout=10  # Faster timeout
+            polling_timeout=5  # Much faster timeout
         )
         
     except KeyboardInterrupt:

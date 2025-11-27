@@ -256,3 +256,33 @@ class DatabaseOperations:
                 (timestamp, account_id, group_id)
             )
             await db.commit()
+    
+    async def get_all_accounts(self) -> List[Dict]:
+        """Get all accounts (active and inactive)"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM accounts ORDER BY created_at DESC") as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+    
+    async def update_account_status(self, account_id: int, is_active: bool):
+        """Update account active status"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE accounts SET is_active = ? WHERE id = ?",
+                (1 if is_active else 0, account_id)
+            )
+            await db.commit()
+    
+    async def get_recent_logs(self, account_id: int, hours: int = 1) -> List[Dict]:
+        """Get recent logs within specified hours"""
+        cutoff_time = self._now_ist() - timedelta(hours=hours)
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT * FROM logs WHERE account_id = ? AND timestamp >= ? 
+                   ORDER BY timestamp DESC""",
+                (account_id, cutoff_time.strftime("%Y-%m-%d %H:%M:%S"))
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]

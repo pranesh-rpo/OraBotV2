@@ -12,6 +12,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         InlineKeyboardButton(text="🔗 Link New Account", callback_data="link_account"),
         InlineKeyboardButton(text="📱 Manage Accounts", callback_data="manage_accounts"),
+        InlineKeyboardButton(text="🌌 Unknown Buck", callback_data="unknown_buck"),
         InlineKeyboardButton(text="ℹ️ About Us", callback_data="about"),
         InlineKeyboardButton(text="💬 Support", url="https://t.me/HelpmeOrabot"),
         InlineKeyboardButton(text="🔒 Privacy Policy", callback_data="privacy"),
@@ -79,8 +80,8 @@ def otp_keypad() -> InlineKeyboardMarkup:
     
     # Last row with 0 and action buttons
     buttons.append([
-        InlineKeyboardButton(text="0", callback_data="otp_0"),
         InlineKeyboardButton(text="⌫", callback_data="otp_backspace"),
+        InlineKeyboardButton(text="0", callback_data="otp_0"),
         InlineKeyboardButton(text="✅", callback_data="otp_submit")
     ])
     

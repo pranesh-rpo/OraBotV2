@@ -1107,7 +1107,14 @@ async def process_file_upload(message: Message, state: FSMContext):
         file_content = await message.bot.download_file(file_info.file_path)
         
         # Decode and parse links
-        content = file_content.decode('utf-8')
+        if hasattr(file_content, 'read'):
+            # It's a BytesIO object, read the bytes first
+            content_bytes = file_content.read()
+        else:
+            # It's already bytes
+            content_bytes = file_content
+            
+        content = content_bytes.decode('utf-8')
         links = [line.strip() for line in content.split('\n') if line.strip()]
         
         if not links:

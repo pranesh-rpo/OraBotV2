@@ -18,6 +18,7 @@ class BroadcastWorker:
         self.db = DatabaseOperations()
         self.running_tasks = {}
         self.ist = timezone(timedelta(hours=5, minutes=30))
+        self.task_heartbeats = {}  # Track last activity for each task
     
     async def sync_broadcast_status(self):
         """Sync broadcast status on startup - clean up stale statuses"""
@@ -97,11 +98,12 @@ class BroadcastWorker:
             "info"
         )
         
-        # Start broadcast task
+        # Start broadcast task with anti-freeze wrapper
         task = asyncio.create_task(
-            self._broadcast_loop(account_id, account, client, message, groups)
+            self._broadcast_loop_with_health_check(account_id, account, client, message, groups)
         )
         self.running_tasks[account_id] = task
+        self.task_heartbeats[account_id] = datetime.now()
         
         await external_logger.send_log(
             account['user_id'],
@@ -133,6 +135,9 @@ class BroadcastWorker:
         # Always update database status and clear manual override for natural stops
         await self.db.update_account_broadcast_status(account_id, False)
         await self.db.set_manual_override(account_id, False)  # Clear manual override for natural stops
+        
+        # Clear heartbeat
+        self.task_heartbeats.pop(account_id, None)
         
         account = await self.db.get_account(account_id)
         await external_logger.send_log(
@@ -320,7 +325,8 @@ class BroadcastWorker:
                         "error"
                     )
                 
-                # Log cycle start
+                # Log cycle start and update heartbeat
+                self.update_heartbeat(account_id)
                 await self.db.add_log(
                     account_id,
                     "broadcast",
@@ -386,6 +392,10 @@ class BroadcastWorker:
                         
                         await self.db.update_group_last_message(account_id, group['group_id'])
                         successful_sends += 1
+                        
+                        # Update heartbeat periodically during sends
+                        if group_index % 10 == 0:
+                            self.update_heartbeat(account_id)
                         
                         # Only log every 5th success to reduce log spam
                         if successful_sends % 5 == 0 or group_index == len(groups) - 1:
@@ -504,6 +514,9 @@ class BroadcastWorker:
                     "info"
                 )
                 
+                # Update heartbeat before waiting
+                self.update_heartbeat(account_id)
+                
                 # Wait for the calculated delay, but check schedule periodically if set
                 if schedule:
                     # If schedule is set, check every minute to respect schedule boundaries
@@ -554,6 +567,85 @@ class BroadcastWorker:
             await self.db.update_account_broadcast_status(account_id, False)
             await self.db.set_manual_override(account_id, False)  # Clear manual override for natural completion
             self.running_tasks.pop(account_id, None)
+            self.task_heartbeats.pop(account_id, None)
+
+    async def _broadcast_loop_with_health_check(self, account_id: int, account: dict,
+                                              client, initial_message: str, groups: list):
+        """Wrapper for broadcast loop with health monitoring and anti-freeze"""
+        try:
+            await self._broadcast_loop(account_id, account, client, initial_message, groups)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            await self.db.add_log(
+                account_id,
+                "error",
+                f"Broadcast loop crashed: {str(e)}",
+                "error"
+            )
+            # Don't re-raise, let the wrapper handle cleanup
+    
+    def update_heartbeat(self, account_id: int):
+        """Update heartbeat timestamp for anti-freeze monitoring"""
+        self.task_heartbeats[account_id] = datetime.now()
+    
+    def is_task_frozen(self, account_id: int, timeout_minutes: int = 10) -> bool:
+        """Check if a task is frozen (no heartbeat for too long)"""
+        if account_id not in self.task_heartbeats:
+            return False
+        
+        last_heartbeat = self.task_heartbeats[account_id]
+        time_since_heartbeat = datetime.now() - last_heartbeat
+        return time_since_heartbeat.total_seconds() > (timeout_minutes * 60)
+    
+    async def check_and_fix_frozen_tasks(self):
+        """Check for frozen tasks and attempt to fix them"""
+        frozen_tasks = []
+        for account_id in list(self.running_tasks.keys()):
+            if self.is_task_frozen(account_id):
+                frozen_tasks.append(account_id)
+        
+        for account_id in frozen_tasks:
+            try:
+                await self.db.add_log(
+                    account_id,
+                    "health_monitor",
+                    "Frozen broadcast detected - attempting recovery",
+                    "warning"
+                )
+                
+                # Force stop the frozen task
+                await self.stop_broadcast(account_id)
+                
+                # Wait a bit before restarting
+                await asyncio.sleep(5)
+                
+                # Try to restart
+                account = await self.db.get_account(account_id)
+                if account and account['is_active']:
+                    success, message = await self.start_broadcast(account_id)
+                    if success:
+                        await self.db.add_log(
+                            account_id,
+                            "health_monitor",
+                            "Frozen broadcast recovered successfully",
+                            "info"
+                        )
+                    else:
+                        await self.db.add_log(
+                            account_id,
+                            "health_monitor",
+                            f"Failed to recover frozen broadcast: {message}",
+                            "error"
+                        )
+                        
+            except Exception as e:
+                await self.db.add_log(
+                    account_id,
+                    "health_monitor",
+                    f"Error recovering frozen task: {str(e)}",
+                    "error"
+                )
 
 # Global instance
 broadcast_worker = BroadcastWorker()
